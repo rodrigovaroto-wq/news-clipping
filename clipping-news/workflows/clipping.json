@@ -1,0 +1,2343 @@
+{
+  "name": "ORIA CLIPPING - LLM (Postgres)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b7aec9bf-fae3-4367-9b1a-a89777657feb",
+      "name": "TRIGGER_EXPIRE",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_FIND_EXPIRED — Run Once for All Items\nconst MAX_DAYS=30; // <-- troque para 0 para TESTAR (trata tudo como expirado)\nconst now=Date.now();\nconst out=[];\nfor(const it of $input.all()){\n  const r=it.json;\n  if(String(r.publication_status||'').toLowerCase()!=='published')continue;\n  const pub=Date.parse(r.published_at||'');\n  if(Number.isNaN(pub))continue;\n  if((now-pub)/(24*3600*1000) < MAX_DAYS)continue;\n  out.push({json:{\n    news_id:r.news_id, headline_oria:r.headline_oria||'', summary_oria:r.summary_oria||'',\n    slug:r.slug||'', file_path:r.file_path||'', source_url:r.source_url||'',\n    source_name:r.source_name||'', category:r.category||'', published_at:r.published_at||'',\n    commit_msg:'expire: remove '+(r.file_path||'')\n  }});\n}\nreturn out;\n"
+      },
+      "id": "d78b2547-9101-4f42-8c36-f7b46f5ba2c9",
+      "name": "CODE_FIND_EXPIRED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "delete",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.file_path }}",
+        "commitMessage": "={{ $json.commit_msg }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "id": "cf2d8106-16b3-44b2-8c02-2255b3c504cb",
+      "name": "GITHUB_DELETE_FILE",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        256,
+        1104
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "webhookId": "c41bb651-93ad-4f62-b2c4-778af920142e",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_BUILD_EXPIREDROW — recupera dados do CODE_FIND_EXPIRED (GitHub troca o item)\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_FIND_EXPIRED').all()[idx].json; } catch (e) { j = $json; }\n\nconst b = new Date(Date.now() - 3 * 3600 * 1000);\nconst p = (n) => String(n).padStart(2, '0');\nconst data = b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());\n\nconst obj = {};\nobj.news_id = j.news_id;\nobj.headline_oria = j.headline_oria;\nobj.summary_oria = j.summary_oria;\nobj.slug = j.slug;\nobj.file_path = j.file_path;\nobj.source_url = j.source_url;\nobj.source_name = j.source_name;\nobj.category = j.category;\nobj.published_at = j.published_at;\nobj.expired_at = data;\nreturn { json: obj };"
+      },
+      "id": "144f8201-726b-4b2b-ab2f-f645f2176edc",
+      "name": "CODE_BUILD_EXPIREDROW",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "expired_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "20d904af-7bb7-4ed1-b622-5cc1e25ef6cc",
+      "name": "GS_APPEND_EXPIRED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        704,
+        1008
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_MARK_EXPIRED — recupera news_id do CODE_FIND_EXPIRED\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_FIND_EXPIRED').all()[idx].json; } catch (e) { j = $json; }\n\nconst b = new Date(Date.now() - 3 * 3600 * 1000);\nconst p = (n) => String(n).padStart(2, '0');\nconst data = b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());\n\nconst obj = {};\nobj.news_id = j.news_id;\nobj.publication_status = 'expired';\nobj.expired_at = data;\nreturn { json: obj };"
+      },
+      "id": "b06a073a-5764-4d3d-8e26-32c358aa5ee7",
+      "name": "CODE_MARK_EXPIRED",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1184
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "published_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "ae0a4981-a077-4e97-bb2e-9c6016b11a39",
+      "name": "GS_UPDATE_PUBLISHED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        704,
+        1184
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 5-23 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "699f8b46-acb5-4e62-9622-bfa5b1ee7f9a",
+      "name": "TRIGGER_INGEST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// KEYWORD_PENEIRA v3 (intermediária) — corta lixo seguro; deixa dúvidas (JCP/recompra/tarifa/macro) para o LLM\nconst norm = (s) => { s = ' ' + String(s||'').toLowerCase(); s = s.normalize('NFD').replace(/[\\u0300-\\u036f]/g,''); s = s.replace(/[^a-z0-9 ]+/g,' ').replace(/\\s+/g,' ').trim(); return ' ' + s + ' '; };\nconst has = (t, w) => t.indexOf(' ' + w + ' ') !== -1;\n\nconst L = {\n  LIXO: ['senado','senador','deputado','congresso','stf','supremo','gilmar','lula','bolsonaro','planalto','pec','cpi','partido','policia federal','propina','vereador','prefeito','governador','ministro','premie','guerra','tropas','israel','libano','hamas','ucrania','russia','vance','netanyahu','trump','putin','copa do mundo','futebol','messi','mbappe','selecao','jogador','fifa','taylor swift','novela','bbb','filme','cinema','estreia','gta','xbox','console','windows','menopausa','como sacar','dia de sorte','lotofacil','mega sena'],\n  DESASTRE: ['terremoto','terremotos','tsunami','enchente','furacao','vulcao','desabamento','magnitude'],\n  CULTURA: ['restaurante','restaurantes','gastronomia','cannes lions','wsl','surf','tequila','morcegos','golfinhos','velociraptor','dinossauro','cervejaria','museu','exposicao','hollywood','o urso','avatar','o que assistir','mascaras led','skincare','influencer','pacocas'],\n  CIENCIA: ['cientistas','rancor','estudo revela','paleontolog','fossil','asteroide','milhoes de anos','el nino','previsao do tempo','frio e chuva','calor','verao'],\n  VIAGEM: ['vai para a europa','o que fazer e evitar'],\n  CRIPTO: ['bitcoin','btc','criptomoeda','cripto','ethereum','satoshi','michael saylor'],\n  BOLETIM: ['ao vivo','cotacao','dolar hoje','ibovespa','dolar cai','dolar recua','dolar sobe','wall street','sp 500','s p 500','petroleo sobe','petroleo cai','after hours','taxas dos dis','di caem','di sobe','pre mercado','acumula queda','acumula alta','fecha em alta','fecha em queda','bolsas da asia','bolsas asiaticas','circuit breaker','o que move os mercados','realizacao de lucros']\n};\n\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json;\n  const t = norm((r.headline_original||'') + ' ' + (r.summary_original||''));\n  const th = norm(r.headline_original||'');\n  const url = String(r.source_url||'').toLowerCase();\n\n  const checa = (arr) => { for (const w of arr) { if (has(t, norm(w).trim())) return true; } return false; };\n  let lixo = false;\n  for (const k of Object.keys(L)) { if (checa(L[k])) { lixo = true; break; } }\n  if (!lixo && th.indexOf(' artigo ') !== -1) lixo = true;\n  if (!lixo && th.indexOf(' opiniao ') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/esg/') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/carreira/') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/esporte/') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/ciencia/') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/mundo/') !== -1) lixo = true;\n  if (!lixo && url.indexOf('/casual/') !== -1) lixo = true;\n\n  const b = new Date(Date.now() - 3*3600*1000);\n  const p = (n) => String(n).padStart(2,'0');\n  const data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\n  const obj = {};\n  obj.news_id = r.news_id;\n  obj.status = lixo ? 'rejected' : 'triagem_llm';\n  obj.qa_flags = lixo ? 'rejected_keyword' : '';\n  obj.updated_at = data;\n  out.push({ json: obj });\n}\nreturn out;"
+      },
+      "id": "e19a6412-c2fa-4831-aaeb-1729512628b9",
+      "name": "KEYWORD_PENEIRA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 15 5-23 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "802fcec4-3bbf-48d7-ac04-e6c3dbe958c1",
+      "name": "TRIGGER_TRIAGE",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -416,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "raw_news"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "status",
+              "value": "triagem_llm"
+            }
+          ]
+        },
+        "sort": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "a10cd788-90d3-45e4-bf82-3a0afd2963d1",
+      "name": "GS_READ-raw_news",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -192,
+        272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "raw_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "_segue": false
+          },
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [
+            {
+              "id": "news_id",
+              "displayName": "news_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "qa_flags",
+              "displayName": "qa_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_segue",
+              "displayName": "_segue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_name",
+              "displayName": "source_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "image_url",
+              "displayName": "image_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "headline_original",
+              "displayName": "headline_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "summary_original",
+              "displayName": "summary_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "raw_content",
+              "displayName": "raw_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "primary_tag",
+              "displayName": "primary_tag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "published_source_at",
+              "displayName": "published_source_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "collected_at",
+              "displayName": "collected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "d8f91c36-90d4-4ab2-9292-119a7cc6f2ea",
+      "name": "GS_UPDATE-raw_news",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1360,
+        288
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_BUILD_MD — description curta (card) + summary_full longo (pagina)\nconst now = new Date();\nconst fmtBR = (d) => {\n  const dt = d ? new Date(d) : new Date();\n  if (isNaN(dt.getTime())) return '';\n  const b = new Date(dt.getTime() - 3 * 3600 * 1000);\n  const p = (n) => String(n).padStart(2, '0');\n  return b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());\n};\nconst dateOnly = (d) => fmtBR(d).slice(0, 10);\n\nconst j = $json;\nconst slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-z0-9\\s-]/g, '').trim().replace(/\\s+/g, '-').slice(0, 70).replace(/-+$/g, '').replace(/^-+/g, '');\n\n// curto para o card: 1a frase ate ~180\nconst cortaCurto = (raw) => {\n  let t = String(raw || '').replace(/\\s+/g, ' ').trim();\n  if (t.length <= 180) return t;\n  const janela = t.slice(0, 200);\n  const re = /\\.(\\s|$)/g; let m, corte = -1;\n  while ((m = re.exec(janela)) !== null) {\n    const pos = m.index;\n    const antes = pos > 0 ? janela.charAt(pos - 1) : '';\n    const depois = pos + 2 < janela.length ? janela.charAt(pos + 2) : ' ';\n    if (/[0-9]/.test(antes) && /[0-9]/.test(depois)) continue;\n    if (pos + 1 >= 120) { corte = pos; break; }\n  }\n  if (corte !== -1) return janela.slice(0, corte + 1);\n  let s = t.slice(0, 180); s = s.slice(0, s.lastIndexOf(' ')).trim();\n  return s + '…';\n};\n\nconst title = j.headline || '(sem titulo)';\nconst slug = slugify(title);\nconst resumoLongo = String(j.summary || '').replace(/\\s+/g, ' ').trim(); // ja vem longo da raw_news\nconst resumoCurto = cortaCurto(resumoLongo);\n\nconst body = [\n  resumoLongo || title,\n  '',\n  'Fonte: [' + (j.srcname || 'Fonte') + '](' + (j.srcurl || '') + ')'\n].join('\\n');\n\nconst fm = [\n  '---',\n  'title: ' + JSON.stringify(title),\n  'slug: ' + JSON.stringify(slug),\n  'description: ' + JSON.stringify(resumoCurto),\n  'summary_full: ' + JSON.stringify(resumoLongo),\n  'date: ' + JSON.stringify(dateOnly(now)),\n  'category: ' + JSON.stringify(j.cat || 'economia'),\n  'source_name: ' + JSON.stringify(j.srcname || ''),\n  'source_url: ' + JSON.stringify(j.srcurl || ''),\n  'image: ' + JSON.stringify(j.img || ''),\n  '---', '', body, ''\n].join('\\n');\n\n\nconst filePath = 'src/content/posts/' + dateOnly(now) + '-' + slug + '.md';\n\nconst obj = {};\nobj.news_id = j.news_id;\nobj.slug = slug;\nobj.title = title;\nobj.description = resumoCurto;\nobj.summary_full = resumoLongo;\nobj.date = dateOnly(now);\nobj.file_path = filePath;\nobj.file_content = fm;  \nobj.commit_msg = 'post: ' + title;\nobj.srcurl = j.srcurl;\nobj.srcname = j.srcname;\nobj.cat = j.cat;\nobj.img = j.img;\nobj.updated_at = fmtBR(now);\nreturn { json: obj };"
+      },
+      "id": "6b038ef7-f409-4b70-b308-e63e934f49c5",
+      "name": "CODE_BUILD_MD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2304,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_RAWSTATE — recupera news_id do CODE_BUILD_MD\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_BUILD_MD').all()[idx].json; } catch (e) { j = $json; }\n\nconst b = new Date(Date.now() - 3*3600*1000);\nconst p = (n)=>String(n).padStart(2,'0');\nconst data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\nconst obj = {};\nobj.news_id = j.news_id;\nobj.status = 'published';\nobj.qa_flags = 'published';\nobj.updated_at = data;\nreturn { json: obj };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        560
+      ],
+      "id": "26748160-4955-478a-8daf-34b51af8d884",
+      "name": "CODE_RAWSTATE"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 30 5-23 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "e57dc8bb-86ca-418b-a57c-9c2e5d94ce5c",
+      "name": "TRIGGER_PUBLISH",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.srcurl }}",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "redirect": {
+            "redirect": {}
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1408,
+        656
+      ],
+      "id": "c7f92af4-eb26-4b00-93d4-6b64ec985a33",
+      "name": "HTTP_FETCH_PAGE"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_OGIMAGE — recupera dados do CODE_PREP + extrai og:image + corpo do texto (até 10000)\nconst idx = $itemIndex;\nlet orig = {};\ntry { orig = $('CODE_PREP').all()[idx].json; } catch (e) { orig = {}; }\n\nconst html = String($json.data || $json.body || $json.text || '');\n\n// --- imagem (og:image) ---\nlet img = orig.img || '';\nif (!img && html) {\n  const findMeta = (key) => {\n    let from = 0;\n    for (let g = 0; g < 200; g++) {\n      const mStart = html.indexOf('<meta', from);\n      if (mStart === -1) return '';\n      const mEnd = html.indexOf('>', mStart);\n      if (mEnd === -1) return '';\n      const tag = html.slice(mStart, mEnd + 1);\n      from = mEnd + 1;\n      if (tag.indexOf(key) === -1) continue;\n      const cAt = tag.indexOf('content=');\n      if (cAt === -1) continue;\n      const q = tag.charAt(cAt + 8);\n      const cEnd = tag.indexOf(q, cAt + 9);\n      if (cEnd === -1) continue;\n      let url = tag.slice(cAt + 9, cEnd).split('&amp;').join('&').trim();\n      if (url.indexOf('http') === 0) return url;\n    }\n    return '';\n  };\n  img = findMeta('og:image') || findMeta('twitter:image') || findMeta('og:image:url') || '';\n}\n\n// --- corpo do texto (até 10000) ---\nconst extractBody = (raw) => {\n  if (!raw) return '';\n  let h = String(raw);\n  h = h.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, ' ');\n  h = h.replace(/<nav[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<header[\\s\\S]*?<\\/header>/gi, ' ');\n  h = h.replace(/<footer[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<aside[\\s\\S]*?<\\/aside>/gi, ' ');\n  h = h.replace(/<form[\\s\\S]*?<\\/form>/gi, ' ');\n  let paras = [];\n  const re = /<p[^>]*>([\\s\\S]*?)<\\/p>/gi;\n  let m;\n  while ((m = re.exec(h)) !== null) {\n    let txt = m[1].replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n    if (txt.length >= 40) paras.push(txt);\n  }\n  let texto = paras.join('\\n\\n');\n  if (texto.length < 200) {\n    texto = h.replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n  }\n  if (texto.length > 10000) texto = texto.slice(0, 10000);\n  return texto;\n};\n\nlet bodyText = extractBody(html);\nif (!bodyText || bodyText.length < 200) bodyText = orig.summary || '';\n\nconst obj = {};\nobj.news_id = orig.news_id;\nobj.headline = orig.headline;\nobj.summary = orig.summary;\nobj.body_text = bodyText;\nobj.srcname = orig.srcname;\nobj.srcurl = orig.srcurl;\nobj.cat = orig.cat;\nobj.empresa = orig.empresa;\nobj.img = img;\nreturn { json: obj };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        656
+      ],
+      "id": "1b1adaed-cb7b-4bb9-baa0-698d4e91b44d",
+      "name": "CODE_OGIMAGE"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_PARSE_RESUMO — interpreta o resumo do GPT (formato OpenAI)\nconst idx = $itemIndex;\nlet orig = {};\ntry { orig = $('CODE_OGIMAGE').all()[idx].json; } catch (e) { orig = $json; }\n\n// OpenAI: choices[0].message.content\nlet raw = '';\ntry { raw = ($json.choices && $json.choices[0] && $json.choices[0].message.content) || ''; } catch (e) { raw = ''; }\n\nlet parsed = { resumo: '', categoria: '' };\ntry { parsed = JSON.parse(String(raw).replace(/```json|```/g, '').trim()); } catch (e) {}\n\nconst CATS = ['insolvencia','reestruturacao','desinvestimento','ma','emissao','captacao','governanca','liquidez'];\nconst cat = CATS.includes(parsed.categoria) ? parsed.categoria : (orig.cat || 'economia');\n\n// fallback: se o LLM falhar, usa o resumo cru (nunca publica vazio)\nconst resumo = (parsed.resumo && parsed.resumo.length > 100) ? parsed.resumo : (orig.summary || orig.headline || '');\n\nconst obj = Object.assign({}, orig);\nobj.summary = resumo;   // resumo editorial do LLM (vai para o CODE_BUILD_MD)\nobj.cat = cat;\nreturn { json: obj };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        656
+      ],
+      "id": "db951d99-a347-4960-9e07-0a2fc0ed3931",
+      "name": "CODE_PARSE_RESUMO"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        32,
+        272
+      ],
+      "id": "ee2eac2b-1cad-40cd-956e-737527bf2d0b",
+      "name": "LOOP"
+    },
+    {
+      "parameters": {
+        "content": "INJEST NEWS",
+        "height": 368,
+        "width": 2288,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        -288
+      ],
+      "typeVersion": 1,
+      "id": "ca638537-453e-4cd3-8280-4c8cd669ec41",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "TRIAGE NEWS",
+        "height": 336,
+        "width": 1984,
+        "color": "#000000"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        144
+      ],
+      "typeVersion": 1,
+      "id": "d3cf0a53-7a8a-4a3a-9e3c-6810d6501228",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_VALIDA_SCHEMA — determinístico, Run Once for Each Item\n// Valida a saída da triagem (LLM 1) e decide se vai ao verificador\nconst idx = $itemIndex;\nlet orig = {};\ntry { orig = $('LOOP').item.json; } catch (e) { orig = {}; }\n\nconst CATS = ['insolvencia','reestruturacao','desinvestimento','ma','emissao','captacao','governanca','liquidez'];\n\n// extrai texto da resposta (OpenAI: choices[0].message.content)\nlet raw = '';\ntry { raw = ($json.choices && $json.choices[0] && $json.choices[0].message.content) || ''; } catch (e) { raw = ''; }\n\n// parse tolerante\nlet parsed = null;\ntry { parsed = JSON.parse(String(raw).replace(/```json|```/g,'').trim()); } catch (e) { parsed = null; }\n\nconst b = new Date(Date.now() - 3*3600*1000);\nconst p = (n) => String(n).padStart(2,'0');\nconst data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\nconst out = { news_id: orig.news_id, updated_at: data };\n\n// 1) schema inválido → rejeita (sua decisão 3)\nconst schemaOk = parsed\n  && typeof parsed.relevante === 'boolean'\n  && (parsed.relevante === false || CATS.includes(parsed.categoria));\n\nif (!schemaOk) {\n  out.status = 'rejected';\n  out.qa_flags = 'rejected_schema_triagem';\n  out._segue = false;            // não vai ao verificador\n  return { json: out };\n}\n\n// 2) triagem rejeitou → rejeita, não chama verificador (decisão 2)\nif (parsed.relevante === false) {\n  out.status = 'rejected';\n  out.primary_tag = '';\n  out.qa_flags = 'rejected_triagem: ' + (parsed.justificativa || '');\n  out._segue = false;\n  return { json: out };\n}\n\n// 3) válido e relevante → segue para verificação\nout._segue = true;\nout._cat_triagem = parsed.categoria;\nout._just_triagem = parsed.justificativa || '';\n// carrega o texto que o verificador vai precisar\nout.headline_original = orig.headline_original || '';\nout.summary_original = orig.summary_original || '';\nout.raw_content = orig.raw_content || '';\nreturn { json: out };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        160
+      ],
+      "id": "0f499f29-2659-4d85-892d-d9f5d81ec768",
+      "name": "CODE_VALIDA_SCHEMA"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 150,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é o auditor de triagem da Oria Partners. Uma primeira análise já classificou a notícia como RELEVANTE e atribuiu uma categoria. Sua tarefa é auditar essa decisão com rigor e ceticismo — você é a última barreira antes da publicação.\\n\\nFaça DUAS verificações:\\n\\n1. RELEVÂNCIA (rigorosa): a notícia descreve mesmo um evento corporativo concreto e já ocorrido/anunciado, com consequência sobre capital, controle, dívida, liquidez ou ativos? Na dúvida, responda relevante_confirmado=false. É melhor barrar uma boa do que publicar uma duvidosa.\\n\\nTESTE DECISIVO: algo concreto ACONTECEU (fato) ou o texto apenas INTERPRETA/OPINA (tese)? Análise de mercado, opinião ou tese NÃO são eventos: rejeite.\\n\\nSUCESSÃO DE EXECUTIVO: troca, nomeação ou saída de CEO/CFO/diretor SEM mudança de controle acionário, venda ou reorganização estrutural é rotina de governança e NÃO é publicável: responda relevante_confirmado=false.\\n\\nREGRA GEOGRÁFICA (FORTE): só confirme se o texto AFIRMA EXPLICITAMENTE elo com o Brasil (empresa brasileira, ativo/operação/dívida/efeito concreto no Brasil). Partes estrangeiras sem menção explícita ao Brasil: relevante_confirmado=false, por maior que seja o evento. Não presuma elo. Texto truncado ou de paywall NÃO é motivo de rejeição por si só. Avalie o elo com o Brasil no título e no trecho disponível; se o elo estiver explícito (ex: 'operação brasileira', 'ativo no Brasil'), confirme normalmente. Rejeite apenas se o elo com o Brasil não estiver afirmado em lugar nenhum do texto disponível.\\n\\n2. CATEGORIA: independentemente da sugerida, indique a CORRETA. Mudança de controle/reorganização = governanca; mera troca de executivo NÃO é governanca (é rejeição).\\n\\nCATEGORIAS (ordem de prioridade — a de cima vence):\\ninsolvencia > reestruturacao > desinvestimento > ma > emissao > captacao > governanca > liquidez\\n\\nDefinições:\\n- insolvencia: RJ, falência, liquidação, default.\\n- reestruturacao: renegociação/gestão de dívida em estresse, turnaround, waiver. Venda de ativo PARA pagar credores entra aqui.\\n- desinvestimento: venda de ativo/unidade/participação saudável.\\n- ma: aquisição/fusão/compra de controle sem estresse.\\n- emissao: debêntures, bonds, CRI, CRA, notes.\\n- captacao: IPO, follow-on, aporte, aumento de capital, rodada de investimento (inclui venture capital e startups).\\n- governanca: mudança de controle acionário, reorganização societária estrutural, spinoff/cisão, OPA, fechamento de capital, saída de bolsa.\\n- liquidez: caixa, linhas de crédito, sem reestruturação de passivo.\\n\\nREGRA DE FRONTEIRA: estresse financeiro define a categoria (insolvencia/reestruturacao) mesmo havendo venda de ativo ou aporte.\\n\\nResponda APENAS com JSON válido, sem markdown, sem texto extra: {\\\"relevante_confirmado\\\": true|false, \\\"categoria_correta\\\": \\\"<slug das 8>\\\", \\\"observacao\\\": \\\"<máx 15 palavras>\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"TÍTULO: \" + ($json.headline_original || '') + \"\\n\\nTEXTO: \" + ($json.raw_content || $json.summary_original || '').slice(0, 4000) + \"\\n\\nCATEGORIA SUGERIDA PELA PRIMEIRA ANÁLISE: \" + ($json._cat_triagem || '')) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        928,
+        160
+      ],
+      "id": "d7797fce-f2df-4cce-ae9c-bdd0289645c3",
+      "name": "GPT-API_VERIFICA",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DpYGsTlWMPBsYvme",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 200,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é o analista de triagem da Oria Partners, boutique de assessoria financeira em reestruturação, special situations, M&A, capital structure e liquidez. Sua ÚNICA tarefa é decidir se uma notícia descreve um evento corporativo relevante e, em caso afirmativo, classificá-la em exatamente uma categoria.\\n\\nDEFINIÇÃO DE RELEVANTE\\nRelevante = fato corporativo concreto e já ocorrido (ou formalmente anunciado) envolvendo uma empresa identificável, com consequência sobre estrutura de capital, controle, dívida, liquidez ou propriedade de ativos.\\n\\nTESTE DECISIVO: algo concreto ACONTECEU com uma empresa específica (fato), ou o texto apenas INTERPRETA/OPINA sobre o cenário (tese)? Se for tese, opinião ou análise de cenário, rejeite.\\n\\nNÃO é relevante (rejeite, relevante=false):\\n- Análise, opinião ou tese de mercado: textos que interpretam cenário, discutem tendências, avaliam riscos ou oportunidades sem um fato corporativo concreto e novo. Ex: 'por que o crédito privado está arriscado', 'o novo desafio para o investidor', 'gestores veem oportunidade em X'. Mencionar um tema relevante NÃO torna a notícia relevante se nada concreto ocorreu.\\n- Compilado ou boletim de múltiplos eventos: matéria que AGREGA vários fatos ou várias empresas distintas num só texto, em vez de reportar UM fato corporativo único. Sinais: 'Agenda de empresas', 'Radar do mercado', 'Destaques do dia', 'e outros destaques', 'Confira os destaques', ou vários tickers/empresas diferentes listados (ex: 'Itaú, GPS, Embraer e outros'), cada um com seu próprio assunto. Nesses casos o 'fato' é a própria lista, então rejeite. ATENÇÃO: NÃO confundir com notícia de fato único que apenas MENCIONA outras empresas de passagem (comparação, contexto de setor, cadeia). Se há um evento central claro sobre uma empresa, NÃO rejeite por esta regra.\\n- Troca, sucessão, nomeação ou saída de executivo (CEO, CFO, diretor) SEM mudança de controle acionário, venda ou reorganização estrutural. Sucessão de liderança, por si só, é rotina de governança e NÃO é publicável. Ex: 'empresa anuncia novo CEO', 'fundador deixa cargo e vai para o conselho' = rejeitar.\\n- Cotações, índices, ação sobe/cai, boletins de mercado.\\n- Recomendação de analista ou carteira (preço-alvo, compre, rebaixa, eleva recomendação).\\n- Política, esporte, entretenimento, celebridades, ciência, clima, cripto especulativa.\\n- Resultado trimestral sem evento estrutural.\\n- Lançamento de produto, expansão de varejo, abertura de loja.\\n- Entrevista ou opinião sem fato novo concreto.\\n- Projeção, rumor vago, estuda, pode vir a, sem ato formal.\\n\\nPRIORIDADE GEOGRÁFICA (REGRA FORTE): Brasil primeiro. Só é relevante se o texto AFIRMA EXPLICITAMENTE elo com o Brasil: empresa brasileira, ativo/operação/subsidiária no Brasil, dívida ou credores no Brasil, ou efeito concreto e declarado sobre empresa/mercado brasileiro. Se as partes são estrangeiras e o texto NÃO menciona o Brasil de forma explícita, rejeite (relevante=false), por maior que seja o valor. NÃO presuma elo: o vínculo precisa estar escrito no texto. Texto truncado ou de paywall ('matéria exclusiva para assinantes') NÃO é motivo de rejeição por si só: avalie o elo com o Brasil no que estiver disponível, inclusive no título. Se o elo com o Brasil estiver explícito mesmo no trecho curto (ex: 'operação brasileira', 'ativo no Brasil'), avalie normalmente. Rejeite apenas se, mesmo lendo título e trecho, o elo com o Brasil não estiver afirmado. Ex: 'Schneider (França) compra Cognite (Noruega)' sem citar Brasil = rejeitar. 'Holding italiana faz IPO na Nasdaq' sem citar Brasil = rejeitar.\\n\\nCATEGORIAS — escolha EXATAMENTE UMA. Quando couber em mais de uma, use a de MAIOR prioridade nesta ordem (a de cima vence):\\n1. insolvencia — recuperação judicial, falência, intervenção, liquidação, default declarado.\\n2. reestruturacao — renegociação de dívida, alongamento, turnaround, gestão de passivo em estresse, waiver, DIP.\\n3. desinvestimento — venda de ativo, unidade, subsidiária ou participação, sobretudo para reduzir dívida ou focar portfólio.\\n4. ma — aquisição, fusão, compra de controle, joint venture de capital, SEM ângulo de estresse.\\n5. emissao — dívida no mercado: debêntures, bonds, notes, CRI, CRA, nota promissória.\\n6. captacao — equity: IPO, follow-on, aporte, aumento de capital, rodada de investimento (incluindo venture capital e startups).\\n7. governanca — mudança de CONTROLE acionário, reorganização societária com efeito estrutural, fato relevante societário, acordo de acionistas, spinoff/cisão, OPA, fechamento de capital, saída de bolsa. NÃO inclui mera troca de executivo.\\n8. liquidez — gestão de caixa, linhas de crédito, reforço de liquidez sem reestruturação de passivo.\\n\\nREGRA DE FRONTEIRA CRÍTICA: se há estresse financeiro (dívida em dificuldade, default iminente), use insolvencia ou reestruturacao MESMO que a notícia mencione venda de ativo ou aporte. O estresse define a categoria. Venda de ativo saudável para focar portfólio = desinvestimento. Venda de ativo para pagar credores = reestruturacao.\\n\\nEXEMPLOS\\nNotícia: Enjoei anuncia troca de CEO; fundador vai para o conselho. -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Sucessão de executivo sem mudança de controle\\\"}\\nNotícia: Para gestores, o CDI não paga mais o risco do crédito privado. -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Análise de mercado, sem fato corporativo\\\"}\\nNotícia: Agenda de empresas: GPS compra Aster; Rumo assina aditivo; Nexa é abordada; Oi tem novo acionista. -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Compilado de múltiplos eventos e empresas\\\"}\\nNotícia: Itaú, GPS, Embraer e outros destaques desta quinta (radar do dia). -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Boletim de destaques, múltiplos assuntos\\\"}\\nNotícia: Schneider Electric (França) compra Cognite (Noruega) por US$ 3,1 bi, texto não cita Brasil. -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Estrangeiras sem elo explícito com o Brasil\\\"}\\nNotícia: Banco Central decreta liquidação extrajudicial da Sefer Investimentos. -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"insolvencia\\\", \\\"justificativa\\\": \\\"Liquidação extrajudicial decretada\\\"}\\nNotícia: Grupo Dolly é alvo de pedido de falência por procuradorias, dívida de R$ 15,75 bi. -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"insolvencia\\\", \\\"justificativa\\\": \\\"Pedido de falência de grande devedor\\\"}\\nNotícia: GPS compra 65% do Grupo Aster por meio de controlada. -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"ma\\\", \\\"justificativa\\\": \\\"Aquisição de controle de empresa brasileira\\\"}\\nNotícia: Simpar conclui venda de participação na Ciclus Amazônia por R$ 124,5 mi. -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"desinvestimento\\\", \\\"justificativa\\\": \\\"Venda de participação\\\"}\\nNotícia: Braskem obtém na Justiça suspensão de 60 dias na cobrança de dívidas. -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"reestruturacao\\\", \\\"justificativa\\\": \\\"Gestão de passivo em estresse\\\"}\\nNotícia: Farmacêutica indiana Lupin busca comprador para operação brasileira de R$ 300 mi (texto truncado/paywall). -> {\\\"relevante\\\": true, \\\"categoria\\\": \\\"desinvestimento\\\", \\\"justificativa\\\": \\\"Venda de operação brasileira, elo com Brasil explícito\\\"}\\nNotícia: BofA eleva recomendação de Vale para compra. -> {\\\"relevante\\\": false, \\\"categoria\\\": null, \\\"justificativa\\\": \\\"Recomendação de analista\\\"}\\n\\nResponda APENAS com um objeto JSON válido, sem markdown, sem texto antes ou depois: {\\\"relevante\\\": true|false, \\\"categoria\\\": \\\"<slug das 8 ou null>\\\", \\\"justificativa\\\": \\\"<máx 15 palavras>\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"TÍTULO: \" + ($json.headline_original || '') + \"\\n\\nTEXTO: \" + ($json.raw_content || $json.summary_original || '').slice(0, 4000)) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        288,
+        160
+      ],
+      "id": "a19baa1a-1656-48d6-99b1-03a444b530b0",
+      "name": "GPT-API_TRIAGEM",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DpYGsTlWMPBsYvme",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "PUBLISH NEWS",
+        "height": 384,
+        "width": 3616
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        544
+      ],
+      "typeVersion": 1,
+      "id": "ac2a5770-831d-42cb-9163-b5b6a2597b2e",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into published_news (\n  news_id, headline_oria, summary_oria, summary_full, slug, file_path,\n  source_url, image_url, source_name, category, publication_status,\n  published_at, embedding\n) values (\n  $1, $2, $3, $4, $5, $6,\n  $7, $8, $9, $10, $11,\n  $12::timestamptz, $13::vector\n)\non conflict (news_id) do update set\n  headline_oria = excluded.headline_oria,\n  summary_oria  = excluded.summary_oria,\n  summary_full  = excluded.summary_full,\n  slug          = excluded.slug,\n  file_path     = excluded.file_path,\n  source_url    = excluded.source_url,\n  image_url     = excluded.image_url,\n  source_name   = excluded.source_name,\n  category      = excluded.category,\n  publication_status = excluded.publication_status,\n  published_at  = excluded.published_at,\n  embedding     = excluded.embedding;",
+        "options": {
+          "queryReplacement": "={{ [$json.news_id, $json.headline_oria, $json.summary_oria, $json.summary_full, $json.slug, $json.file_path, $json.source_url, $json.image_url, $json.source_name, $json.category, $json.publication_status, $json.published_at, $json.embedding] }}"
+        }
+      },
+      "id": "238734bc-b71a-4d44-9136-8856fa2c183d",
+      "name": "GS_APPEND_PUBLISHED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2976,
+        752
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "raw_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "_segue": false
+          },
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [
+            {
+              "id": "news_id",
+              "displayName": "news_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "qa_flags",
+              "displayName": "qa_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_segue",
+              "displayName": "_segue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_name",
+              "displayName": "source_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "image_url",
+              "displayName": "image_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "headline_original",
+              "displayName": "headline_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "summary_original",
+              "displayName": "summary_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "raw_content",
+              "displayName": "raw_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "primary_tag",
+              "displayName": "primary_tag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "published_source_at",
+              "displayName": "published_source_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "collected_at",
+              "displayName": "collected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "11effaba-9cbf-4a26-9dc7-0e954136d13d",
+      "name": "GS_UPDATE_RAW",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2960,
+        560
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_BUILD_PUBROW — recupera dados do CODE_BUILD_MD (o GitHub troca o item)\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_BUILD_MD').all()[idx].json; } catch (e) { j = $json; }\nconst b = new Date(Date.now() - 3 * 3600 * 1000);\nconst p = (n) => String(n).padStart(2, '0');\nconst data = b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());\nconst deriveFromUrl = (url) => {\n  const u = String(url || '').toLowerCase();\n  if (u.indexOf('braziljournal') !== -1) return 'Brazil Journal';\n  if (u.indexOf('exame') !== -1) return 'Exame';\n  if (u.indexOf('neofeed') !== -1) return 'NeoFeed';\n  if (u.indexOf('moneytimes') !== -1) return 'Money Times';\n  if (u.indexOf('valor') !== -1) return 'Valor';\n  if (u.indexOf('capitalaberto') !== -1) return 'Capital Aberto';\n  if (u.indexOf('suno') !== -1) return 'Suno';\n  if (u.indexOf('infomoney') !== -1) return 'InfoMoney';\n  const m = u.match(/https?:\\/\\/(?:www\\.)?([^\\/.]+)/);\n  if (m && m[1]) return m[1].charAt(0).toUpperCase() + m[1].slice(1);\n  return 'Fonte';\n};\nlet nome = j.srcname || j.source_name || '';\nif (!nome || nome === 'unknown') nome = deriveFromUrl(j.srcurl || j.source_url || '');\n// recupera o embedding do CODE_PREP casando por news_id (robusto a reordenacoes)\nlet emb = '';\ntry {\n  const prep = $('CODE_PREP').all();\n  for (let k = 0; k < prep.length; k++) {\n    if (prep[k].json.news_id === j.news_id) { emb = prep[k].json.embedding || ''; break; }\n  }\n} catch (e) { emb = ''; }\nconst obj = {};\nobj.news_id = j.news_id;\nobj.headline_oria = j.title || j.headline || '';\nobj.summary_oria = j.description || '';          // resumo CURTO (card)\nobj.summary_full = j.summary_full || '';         // resumo LONGO (pagina)\nobj.slug = j.slug || '';\nobj.file_path = j.file_path || '';\nobj.source_url = j.srcurl || j.source_url || '';\nobj.source_name = nome;\nobj.category = j.cat || j.category || 'economia';\nobj.image = j.img || '';\nobj.image_url = j.img || '';\nobj.published_at = data;\nobj.publication_status = 'published';\nobj.embedding = emb;                             // vetor para dedup semantico futuro\nreturn { json: obj };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2752,
+        752
+      ],
+      "id": "e3ec2810-7838-4871-9556-65348d05fe6f",
+      "name": "CODE_BUILD_PUBROW"
+    },
+    {
+      "parameters": {
+        "maxItems": 15
+      },
+      "id": "06bee9da-ab16-470c-9b5f-2ed21bd5825a",
+      "name": "LIMIT_BATCH",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_PREP vD — molda item + dedup semantico INTRA-LOTE\n// dedup vs-publicado = SQL find_duplicate (DEDUP_CHECK) | teto diario = no read\nconst canon = (u) => {\n  let s = String(u || '').trim().toLowerCase();\n  if (!s) return '';\n  s = s.replace(/^https?:\\/\\//, '').replace(/^www\\./, '');\n  s = s.split('?')[0].split('#')[0].replace(/\\/+$/, '');\n  return s;\n};\nconst getEmb = (obj) => {\n  try { if (obj && obj.data && obj.data[0] && Array.isArray(obj.data[0].embedding)) return obj.data[0].embedding; } catch (e) {}\n  return null;\n};\nconst cosine = (a, b) => {\n  if (!a || !b || a.length !== b.length) return 0;\n  let dot = 0, na = 0, nb = 0;\n  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }\n  if (na === 0 || nb === 0) return 0;\n  return dot / (Math.sqrt(na) * Math.sqrt(nb));\n};\nconst SIM_THRESHOLD = 0.82;\nconst doneUrls = {};\nconst embsRodada = [];\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json;\n  const cu = canon(r.source_url);\n  if (cu && doneUrls[cu]) continue;                 // url repetida no mesmo lote\n  const emb = getEmb(r);\n  if (emb) {                                         // dedup semantico INTRA-LOTE\n    let dup = false;\n    for (let k = 0; k < embsRodada.length; k++) {\n      if (cosine(emb, embsRodada[k]) >= SIM_THRESHOLD) { dup = true; break; }\n    }\n    if (dup) continue;\n  }\n  if (cu) doneUrls[cu] = true;\n  if (emb) embsRodada.push(emb);\n  const obj = {};\n  obj.news_id = r.news_id;\n  obj.headline = r.headline_original || '';\n  obj.summary = r.summary_original || '';\n  obj.srcname = r.source_name || '';\n  obj.srcurl = r.source_url || '';\n  obj.cat = r.primary_tag || 'economia';\n  obj.img = r.image_url || '';\n  obj.embedding = emb ? JSON.stringify(emb) : '';\n  out.push({ json: obj });\n}\nreturn out;"
+      },
+      "id": "16b94d47-6b27-4e09-8ef6-b16f59200f8c",
+      "name": "CODE_PREP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 700,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é editor da Oria Partners, boutique de assessoria financeira em reestruturação, special situations, M&A e capital structure. Escreve para o site institucional, lido por executivos, investidores e potenciais clientes. Tom sóbrio, preciso, executivo, como um advisor sênior explicando um fato a um cliente. Nunca sensacionalista, nunca opinativo, nunca promocional.\\n\\nReceberá título, texto e a categoria definida. Produza duas saídas.\\n\\nRESUMO (entre 1000 e 1500 caracteres, texto corrido em português):\\n- Foque no fato corporativo: o que ocorreu, qual empresa, valores, partes, contexto de estrutura de capital.\\n- Use SOMENTE informação presente no texto. NUNCA invente números, nomes, datas ou contexto. Se um dado não está no texto, não o cite.\\n- Não use linguagem de jornal, não opine, não recomende.\\n- O ÚLTIMO parágrafo (1 a 2 frases) deve trazer a possível implicação para o mercado de forma PONDERADA e condicional (pode indicar, tende a, sinaliza), sem afirmação categórica, sem recomendação, sem prever resultado.\\n\\nCATEGORIA: confirme a fornecida, ou ajuste se claramente incorreta, entre: insolvencia, reestruturacao, desinvestimento, ma, emissao, captacao, governanca, liquidez.\\n\\nResponda APENAS com JSON válido, sem markdown, sem texto extra: {\\\"resumo\\\": \\\"<1000 a 1500 caracteres>\\\", \\\"categoria\\\": \\\"<slug das 8>\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"TÍTULO: \" + ($json.headline || '') + \"\\nCATEGORIA: \" + ($json.cat || '') + \"\\n\\nTEXTO: \" + ($json.body_text || $json.summary || '').slice(0, 10000)) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1936,
+        656
+      ],
+      "id": "c540fa0f-35dd-4a93-9474-572948e530b9",
+      "name": "GPT-API_RESUMO",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DpYGsTlWMPBsYvme",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "EXPIRE NEWS",
+        "height": 352,
+        "width": 1376,
+        "color": "#910808"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -464,
+        992
+      ],
+      "typeVersion": 1,
+      "id": "5286982e-63f7-4d30-978c-a9fbcafae4af",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_RESOLVE — determinístico, Run Once for Each Item\n// Cruza triagem × verificação e aplica a regra de decisão\nconst idx = $itemIndex;\nlet prev = {};\ntry { prev = $('CODE_VALIDA_SCHEMA').item.json; } catch (e) { prev = {}; }\n\nconst CATS = ['insolvencia','reestruturacao','desinvestimento','ma','emissao','captacao','governanca','liquidez'];\n\nlet raw = '';\ntry { raw = ($json.choices && $json.choices[0] && $json.choices[0].message.content) || ''; } catch (e) { raw = ''; }\n\nlet v = null;\ntry { v = JSON.parse(String(raw).replace(/```json|```/g,'').trim()); } catch (e) { v = null; }\n\nconst b = new Date(Date.now() - 3*3600*1000);\nconst p = (n) => String(n).padStart(2,'0');\nconst data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\nconst out = { news_id: prev.news_id, updated_at: data };\nout._segue = true;   // chegou ao verificador => passou na triagem (auditoria coerente)\n\n// schema do verificador inválido → rejeita (conservador)\nconst vOk = v && typeof v.relevante_confirmado === 'boolean';\nif (!vOk) {\n  out.status = 'rejected';\n  out.qa_flags = 'rejected_schema_verifica';\n  return { json: out };\n}\n\n// regra 1: relevância negada = eliminatório\nif (v.relevante_confirmado === false) {\n  out.status = 'rejected';\n  out.primary_tag = '';\n  out.qa_flags = 'rejected_verifica: ' + (v.observacao || '');\n  return { json: out };\n}\n\n// regra 2: relevante confirmado → aprova; categoria do VERIFICADOR prevalece\nlet catFinal = CATS.includes(v.categoria_correta) ? v.categoria_correta : prev._cat_triagem;\nout.status = 'approved';\nout.primary_tag = catFinal;\nout.qa_flags = '';\nreturn { json: out };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        160
+      ],
+      "id": "766c7126-6384-4347-b791-13bac07f8c8b",
+      "name": "CODE_RESOLVE"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bde8bfea-2e2e-4ae8-86fd-6237d61d427d",
+              "leftValue": "={{ $json._segue }}",
+              "rightValue": "=",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        688,
+        272
+      ],
+      "id": "d4cfd5c3-74f9-4cd4-bacb-976bed7b7e50",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_NORMALIZE — summary_original (curto ~800) + raw_content (até 4000 p/ triagem)\nconst now = new Date();\nconst nowMs = Date.now();\nconst CUT = 48 * 3600 * 1000;\nconst CAP = 75;\n\nconst fmtBR = (d) => {\n  const dt = d ? new Date(d) : new Date();\n  if (isNaN(dt.getTime())) return '';\n  const b = new Date(dt.getTime() - 3 * 3600 * 1000);\n  const p = (n) => String(n).padStart(2, '0');\n  return b.getUTCFullYear() + '-' + p(b.getUTCMonth() + 1) + '-' + p(b.getUTCDate()) + ' ' + p(b.getUTCHours()) + ':' + p(b.getUTCMinutes()) + ':' + p(b.getUTCSeconds());\n};\n\nconst deriveFromUrl = (url) => {\n  const u = String(url || '').toLowerCase();\n  if (u.indexOf('braziljournal') !== -1) return 'Brazil Journal';\n  if (u.indexOf('exame') !== -1) return 'Exame';\n  if (u.indexOf('neofeed') !== -1) return 'NeoFeed';\n  if (u.indexOf('moneytimes') !== -1) return 'Money Times';\n  if (u.indexOf('valor') !== -1) return 'Valor';\n  if (u.indexOf('capitalaberto') !== -1) return 'Capital Aberto';\n  if (u.indexOf('suno') !== -1) return 'Suno';\n  if (u.indexOf('infomoney') !== -1) return 'InfoMoney';\n  if (u.indexOf('investing') !== -1) return 'Investing.com';\n  const m = u.match(/https?:\\/\\/(?:www\\.)?([^\\/.]+)/);\n  if (m && m[1]) return m[1].charAt(0).toUpperCase() + m[1].slice(1);\n  return 'Fonte';\n};\n\n// CURTO (~800) — para o card do site e a peneira keyword\nconst cleanLong = (raw) => {\n  const alvo = 700, teto = 820, minFrase = 600;\n  let t = String(raw || '');\n  t = t.replace(/The post[\\s\\S]*?appeared first on.*$/i, '').trim();\n  t = t.replace(/O post[\\s\\S]*?apareceu primeiro em.*$/i, '').trim();\n  t = t.replace(/new TradingView[\\s\\S]*?\\}\\);?/gi, ' ');\n  t = t.replace(/CONTINUA DEPOIS DO CONTEUDO[\\s\\S]*?PAN/gi, ' ');\n  t = t.replace(/LEIA TAMBEM[\\s\\S]*$/i, ' ');\n  t = t.replace(/Leia mais em[\\s\\S]*$/i, ' ');\n  t = t.replace(/<[^>]+>/g, ' ');\n  t = t.replace(/\\[\\s*(\\u2026|\\.\\.\\.)\\s*\\]/g, ' ');\n  t = t.replace(/&#?[a-z0-9]+;/gi, ' ');\n  t = t.replace(/\\s+/g, ' ').trim();\n  if (t.length <= alvo) {\n    if (t && '.!?'.indexOf(t.charAt(t.length - 1)) === -1) t += '.';\n    return t;\n  }\n  const janela = t.slice(0, teto);\n  let corte = -1;\n  const re = /\\.(\\s|$)/g; let m;\n  while ((m = re.exec(janela)) !== null) {\n    const pos = m.index;\n    const antes = pos > 0 ? janela.charAt(pos - 1) : '';\n    const depois = pos + 2 < janela.length ? janela.charAt(pos + 2) : ' ';\n    if (/[0-9]/.test(antes) && /[0-9]/.test(depois)) continue;\n    if (pos + 1 >= minFrase) { corte = pos; break; }\n  }\n  if (corte !== -1) return janela.slice(0, corte + 1);\n  let s = t.slice(0, alvo); s = s.slice(0, s.lastIndexOf(' ')).trim();\n  return s + '.';\n};\n\n// LONGO (até 4000) — só para a triagem/verificação lerem (uso interno)\nconst cleanRaw = (raw) => {\n  const teto = 4000;\n  let t = String(raw || '');\n  t = t.replace(/The post[\\s\\S]*?appeared first on.*$/i, '').trim();\n  t = t.replace(/O post[\\s\\S]*?apareceu primeiro em.*$/i, '').trim();\n  t = t.replace(/new TradingView[\\s\\S]*?\\}\\);?/gi, ' ');\n  t = t.replace(/CONTINUA DEPOIS DO CONTEUDO[\\s\\S]*?PAN/gi, ' ');\n  t = t.replace(/LEIA TAMBEM[\\s\\S]*$/i, ' ');\n  t = t.replace(/Leia mais em[\\s\\S]*$/i, ' ');\n  t = t.replace(/<[^>]+>/g, ' ');\n  t = t.replace(/&#?[a-z0-9]+;/gi, ' ');\n  t = t.replace(/\\s+/g, ' ').trim();\n  if (t.length <= teto) return t;\n  let s = t.slice(0, teto);\n  const lastSpace = s.lastIndexOf(' ');\n  if (lastSpace > teto - 200) s = s.slice(0, lastSpace);\n  return s.trim();\n};\n\nconst extractImg = (html) => {\n  if (!html) return '';\n  const s = String(html);\n  let pos = 0;\n  for (let guard = 0; guard < 80; guard++) {\n    const tag = s.indexOf('<img', pos);\n    if (tag === -1) break;\n    const tagEnd = s.indexOf('>', tag);\n    const imgTag = s.slice(tag, tagEnd === -1 ? tag + 600 : tagEnd + 1);\n    pos = (tagEnd === -1 ? tag + 1 : tagEnd + 1);\n    let url = '';\n    const ssAt = imgTag.indexOf('srcset=');\n    if (ssAt !== -1) {\n      const q = imgTag.charAt(ssAt + 7);\n      const ssEnd = imgTag.indexOf(q, ssAt + 8);\n      if (ssEnd !== -1) {\n        const ss = imgTag.slice(ssAt + 8, ssEnd);\n        const parts = ss.split(',');\n        const last = parts[parts.length - 1].trim().split(/\\s+/)[0];\n        if (last) url = last;\n      }\n    }\n    if (!url) {\n      const srcAt = imgTag.indexOf('src=');\n      if (srcAt !== -1) {\n        const q = imgTag.charAt(srcAt + 4);\n        const e = imgTag.indexOf(q, srcAt + 5);\n        if (e !== -1) url = imgTag.slice(srcAt + 5, e);\n      }\n    }\n    url = String(url).split('&amp;').join('&').trim();\n    if (!url) continue;\n    if (url.indexOf('data:') === 0) continue;\n    if (url.indexOf('http') !== 0) continue;\n    const low = url.toLowerCase();\n    if (low.indexOf('1x1') !== -1 || low.indexOf('pixel') !== -1 || low.indexOf('spacer') !== -1 || low.indexOf('avatar') !== -1 || low.indexOf('gravatar') !== -1) continue;\n    return url;\n  }\n  return '';\n};\n\nconst short = String(nowMs).slice(-4);\n\nconst out = [];\nlet i = 0;\nfor (const it of $input.all()) {\n  const r = it.json;\n\n  let link = '';\n  if (r.link) link = String(r.link).trim();\n  if (!link && r.guid) link = String(typeof r.guid === 'object' ? (r.guid['#text'] || r.guid._ || '') : r.guid).trim();\n  if (!link && r.id) link = String(r.id).trim();\n  if (!link) continue;\n\n  const pubRaw = r.isoDate || r.pubDate || r.published || r.date || '';\n  let pubMs = NaN;\n  if (pubRaw) pubMs = Date.parse(pubRaw);\n  if (!isNaN(pubMs) && nowMs - pubMs > CUT) continue;\n  if (i >= CAP) break;\n\n  let img = '';\n  if (r.enclosure && r.enclosure.url) img = r.enclosure.url;\n  if (!img && r['media:content'] && r['media:content'].url) img = r['media:content'].url;\n  if (!img && r['media:thumbnail'] && r['media:thumbnail'].url) img = r['media:thumbnail'].url;\n  if (!img) img = extractImg(r['content:encoded']);\n  if (!img) img = extractImg(r.content);\n  if (!img) img = extractImg(r.description);\n\n  const fonteTexto = r['content:encoded'] || r.content || r['content:encodedSnippet'] || r.contentSnippet || r.summary || r.description || '';\n\n  const obj = {};\n  obj.news_id = 'NEWS_' + short + '_s_' + i;\n  obj.status = 'pending';\n  obj.created_at = fmtBR(now);\n  obj.updated_at = fmtBR(now);\n  obj.source_name = deriveFromUrl(link);\n  obj.source_url = link;\n  obj.headline_original = (r.title || '(sem titulo)').toString();\n  obj.summary_original = cleanLong(fonteTexto);\n  obj.raw_content = cleanRaw(fonteTexto);\n  obj.published_source_at = fmtBR(pubRaw);\n  obj.collected_at = fmtBR(now);\n  obj.image_url = img;\n  obj.primary_tag = '';\n  obj.qa_flags = '';\n\n  out.push({ json: obj });\n  i++;\n}\nreturn out;"
+      },
+      "id": "cfb408ac-107e-410b-9e7b-04331ec6e620",
+      "name": "CODE_NORMALIZE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list",
+          "cachedResultName": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "raw_news",
+          "mode": "list",
+          "cachedResultName": "raw_news"
+        },
+        "returnAll": true,
+        "where": {
+          "values": []
+        },
+        "sort": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "7a87bc98-db36-47cd-9e49-4a90e8a3808c",
+      "name": "GS_READ_RECENT",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -192,
+        -272
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from raw_news\nwhere status = 'approved'\norder by created_at\nlimit greatest(0, 25 - (\n  select count(*) from published_news\n  where (published_at at time zone 'America/Sao_Paulo')::date\n      = (now() at time zone 'America/Sao_Paulo')::date\n));",
+        "options": {}
+      },
+      "id": "62fd6b73-8070-43de-a654-24e7cfa99250",
+      "name": "GS_READ_APPROVED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -176,
+        672
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.file_path }}",
+        "fileContent": "={{ $json.file_content }}",
+        "commitMessage": "={{ $json.commit_msg }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "id": "fa80780b-81c6-4b2b-9431-3482361d8416",
+      "name": "GITHUB_CREATE_FILE",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        2512,
+        656
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "webhookId": "d1a2c6c7-fadc-4250-be0f-07ba4174d27f",
+      "alwaysOutputData": false,
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "published_news"
+        },
+        "returnAll": true,
+        "where": {
+          "values": []
+        },
+        "sort": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "193f13fc-fcef-4470-ac5e-092366f5d0ab",
+      "name": "GS_READ_PUBLISHED1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -192,
+        1104
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "source_registry"
+        },
+        "returnAll": true,
+        "where": {
+          "values": []
+        },
+        "sort": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "9f868ad7-cfdc-46a2-bfef-54d3ceb0eee8",
+      "name": "GS_READ_SOURCES",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -192,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_BUILD_FEEDS — limpo, sem tier\nconst out = [];\n\nconst deriveFromUrl = (url) => {\n  const u = String(url || '').toLowerCase();\n  if (u.indexOf('braziljournal') !== -1) return 'Brazil Journal';\n  if (u.indexOf('exame') !== -1) return 'Exame';\n  if (u.indexOf('neofeed') !== -1) return 'NeoFeed';\n  if (u.indexOf('moneytimes') !== -1) return 'Money Times';\n  if (u.indexOf('valor') !== -1) return 'Valor';\n  if (u.indexOf('capitalaberto') !== -1) return 'Capital Aberto';\n  if (u.indexOf('suno') !== -1) return 'Suno';\n  if (u.indexOf('investing') !== -1) return 'Investing.com';\n  if (u.indexOf('pipelinevalor') !== -1) return 'Pipeline Valor';\n  const m = u.match(/https?:\\/\\/(?:www\\.)?([^\\/.]+)/);\n  if (m && m[1]) return m[1].charAt(0).toUpperCase() + m[1].slice(1);\n  return 'Fonte';\n};\n\nfor (const it of $input.all()) {\n  const f = it.json;\n  if (!f.rss_url || String(f.rss_url).trim() === '') continue;\n\n  const a = f.rss_active;\n  const ok = (a === true) || ['TRUE', 'VERDADEIRO', '1', 'SIM', 'YES'].includes(String(a).trim().toUpperCase());\n  if (!ok) continue;\n\n  const url = String(f.rss_url).trim();\n  let nome = f.source_name || f.nome || f.name || '';\n  nome = String(nome).trim();\n  if (!nome) nome = deriveFromUrl(url);\n\n  out.push({\n    json: {\n      source_id: f.source_id || '',\n      rss_url: url,\n      source_name: nome,\n      language: f.language || 'pt',\n      country: f.country || 'BR',\n      cap: 25\n    }\n  });\n}\nif (out.length === 0) throw new Error('NO_ACTIVE_FEEDS');\nreturn out;"
+      },
+      "id": "1f605ac8-962f-4575-b72d-1055e4931380",
+      "name": "CODE_BUILD_FEEDS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 6,
+        "options": {}
+      },
+      "id": "a64b7a4f-224b-4fef-9669-2cfca151df4f",
+      "name": "LOOP_FEEDS",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        256,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.rss_url }}",
+        "options": {}
+      },
+      "id": "b0db411c-5683-43ce-8b19-d004df14a786",
+      "name": "RSS_READ",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_FILTER_EXISTING1 — dedup por source_url normalizada (Run Once for All Items)\nconst canon = (u) => {\n  let s = String(u || '').trim().toLowerCase();\n  if (!s) return '';\n  s = s.replace(/^https?:\\/\\//, '');     // tira protocolo\n  s = s.replace(/^www\\./, '');           // tira www.\n  s = s.split('?')[0].split('#')[0];     // tira querystring e ancora\n  s = s.replace(/\\/+$/, '');             // tira barra(s) final(is)\n  return s;\n};\n\nconst inc = $input.all().map((i) => i.json);\nlet ex = [];\ntry { ex = $('GS_READ_RECENT').all().map((i) => i.json); } catch (e) { ex = []; }\n\nconst seen = new Set(ex.map((r) => canon(r.source_url)).filter(Boolean));\nconst out = [];\nfor (const r of inc) {\n  const c = canon(r.source_url);\n  if (!c || seen.has(c)) continue;\n  seen.add(c);\n  out.push({ json: r });\n}\nreturn out;"
+      },
+      "id": "d77dbc92-0a81-42dc-9763-08f5cab1d806",
+      "name": "CODE_FILTER_EXISTING",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        928,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "raw_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "e64e0f07-28af-47e0-baf5-6bda44b15737",
+      "name": "GS_APPEND_RAW",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1152,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "raw_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "_segue": false
+          },
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [
+            {
+              "id": "news_id",
+              "displayName": "news_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "qa_flags",
+              "displayName": "qa_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_segue",
+              "displayName": "_segue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_name",
+              "displayName": "source_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "image_url",
+              "displayName": "image_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "headline_original",
+              "displayName": "headline_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "summary_original",
+              "displayName": "summary_original",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "raw_content",
+              "displayName": "raw_content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "primary_tag",
+              "displayName": "primary_tag",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "published_source_at",
+              "displayName": "published_source_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "collected_at",
+              "displayName": "collected_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "49d8acd5-947b-4868-9cf5-191279c2e4a5",
+      "name": "GS_UPDATE_RAW1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1600,
+        -80
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": {{ JSON.stringify(($json.headline_original || '') + ' ' + ($json.summary_original || '').slice(0, 300)) }},\n  \"dimensions\": 1536\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        64,
+        768
+      ],
+      "id": "b026001f-d20a-4bb8-b2a3-a03f499aaf79",
+      "name": "EMBENDDING",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DpYGsTlWMPBsYvme",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        304,
+        688
+      ],
+      "id": "c9ded504-9223-4a6f-af7f-d68c15d9aaca",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "published_news"
+        },
+        "returnAll": true,
+        "where": {
+          "values": []
+        },
+        "sort": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "aa90b088-7e6c-4ab2-83df-94e61f3965f0",
+      "name": "GS_READ_PUBLISHED2",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1296,
+        1104
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_LIMPA_EMB — identifica linhas com embedding preenchido e > 3 dias, para esvaziar a celula\nconst rows = $input.all().map((i) => i.json);\nconst agora = Date.now();\nconst TRES_DIAS = 3 * 24 * 3600 * 1000;\nconst out = [];\nfor (let k = 0; k < rows.length; k++) {\n  const r = rows[k];\n  const emb = r.embedding;\n  // so interessa quem tem embedding preenchido\n  if (!emb || String(emb).trim() === '') continue;\n  // data de publicacao\n  const pub = String(r.published_at || '').slice(0, 10);\n  if (!pub) continue;\n  const t = new Date(pub + 'T00:00:00Z').getTime();\n  if (isNaN(t)) continue;\n  // mais de 3 dias -> marcar para limpar\n  if (agora - t > TRES_DIAS) {\n    out.push({ json: { news_id: r.news_id, embedding: '' } });\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        1104
+      ],
+      "id": "e1d605c3-bd5d-4aa0-a358-8bc0c8e08d2d",
+      "name": "CODE_LIMPA_EMB"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "published_news"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "news_id"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "30ce4dc1-9eaa-47b1-963d-837900d6192f",
+      "name": "GS_UPDATE_PUBLISHED1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1712,
+        1104
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 30 3 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        1072,
+        1104
+      ],
+      "id": "daee5b22-ed60-4960-b666-f5585dcb1d6f",
+      "name": "TRIGGER_EXPIRE_EMB"
+    },
+    {
+      "parameters": {
+        "content": "EXPIRE EMBENNDING",
+        "height": 224,
+        "width": 896,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1024,
+        1056
+      ],
+      "typeVersion": 1,
+      "id": "45517c07-013e-4ace-8aa2-725218b40737",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select exists (\n    select 1 from find_duplicate($1::vector)\n  ) as is_dup;",
+        "options": {
+          "queryReplacement": "={{ $json.embedding }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        768,
+        576
+      ],
+      "id": "c7986f68-7bc4-4a23-ac8f-8049a6ba0d78",
+      "name": "DEDUP_CHECK",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1008,
+        672
+      ],
+      "id": "2c981a7c-f0c9-43ae-b662-70ecfff95eea",
+      "name": "MERGE_DEDUP"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f8fe099-87f1-413a-b615-f851c543b7a0",
+              "leftValue": "={{ $json.is_dup }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1184,
+        672
+      ],
+      "id": "9610d79f-a56b-4a38-ac31-f42f96efcb46",
+      "name": "IF"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "TRIGGER_EXPIRE": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_PUBLISHED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_FIND_EXPIRED": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_DELETE_FILE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_DELETE_FILE": {
+      "main": [
+        [
+          {
+            "node": "CODE_BUILD_EXPIREDROW",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CODE_MARK_EXPIRED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_BUILD_EXPIREDROW": {
+      "main": [
+        [
+          {
+            "node": "GS_APPEND_EXPIRED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_MARK_EXPIRED": {
+      "main": [
+        [
+          {
+            "node": "GS_UPDATE_PUBLISHED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_INGEST": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_SOURCES",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GS_READ_RECENT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KEYWORD_PENEIRA": {
+      "main": [
+        [
+          {
+            "node": "GS_UPDATE_RAW1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_TRIAGE": {
+      "main": [
+        [
+          {
+            "node": "GS_READ-raw_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ-raw_news": {
+      "main": [
+        [
+          {
+            "node": "LOOP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_UPDATE-raw_news": {
+      "main": [
+        [
+          {
+            "node": "LOOP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_BUILD_MD": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_CREATE_FILE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_RAWSTATE": {
+      "main": [
+        [
+          {
+            "node": "GS_UPDATE_RAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_PUBLISH": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_APPROVED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP_FETCH_PAGE": {
+      "main": [
+        [
+          {
+            "node": "CODE_OGIMAGE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_OGIMAGE": {
+      "main": [
+        [
+          {
+            "node": "LIMIT_BATCH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_PARSE_RESUMO": {
+      "main": [
+        [
+          {
+            "node": "CODE_BUILD_MD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LOOP": {
+      "main": [
+        [],
+        [
+          {
+            "node": "GPT-API_TRIAGEM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_VALIDA_SCHEMA": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-API_TRIAGEM": {
+      "main": [
+        [
+          {
+            "node": "CODE_VALIDA_SCHEMA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-API_VERIFICA": {
+      "main": [
+        [
+          {
+            "node": "CODE_RESOLVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_BUILD_PUBROW": {
+      "main": [
+        [
+          {
+            "node": "GS_APPEND_PUBLISHED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LIMIT_BATCH": {
+      "main": [
+        [
+          {
+            "node": "GPT-API_RESUMO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-API_RESUMO": {
+      "main": [
+        [
+          {
+            "node": "CODE_PARSE_RESUMO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_RESOLVE": {
+      "main": [
+        [
+          {
+            "node": "GS_UPDATE-raw_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "GPT-API_VERIFICA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_UPDATE-raw_news",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_NORMALIZE": {
+      "main": [
+        [
+          {
+            "node": "CODE_FILTER_EXISTING",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_APPROVED": {
+      "main": [
+        [
+          {
+            "node": "EMBENDDING",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_CREATE_FILE": {
+      "main": [
+        [
+          {
+            "node": "CODE_RAWSTATE",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CODE_BUILD_PUBROW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_PUBLISHED1": {
+      "main": [
+        [
+          {
+            "node": "CODE_FIND_EXPIRED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_SOURCES": {
+      "main": [
+        [
+          {
+            "node": "CODE_BUILD_FEEDS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_BUILD_FEEDS": {
+      "main": [
+        [
+          {
+            "node": "LOOP_FEEDS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LOOP_FEEDS": {
+      "main": [
+        [],
+        [
+          {
+            "node": "RSS_READ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS_READ": {
+      "main": [
+        [
+          {
+            "node": "CODE_NORMALIZE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_FILTER_EXISTING": {
+      "main": [
+        [
+          {
+            "node": "GS_APPEND_RAW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_APPEND_RAW": {
+      "main": [
+        [
+          {
+            "node": "KEYWORD_PENEIRA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EMBENDDING": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "CODE_PREP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_PUBLISHED2": {
+      "main": [
+        [
+          {
+            "node": "CODE_LIMPA_EMB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_LIMPA_EMB": {
+      "main": [
+        [
+          {
+            "node": "GS_UPDATE_PUBLISHED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_EXPIRE_EMB": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_PUBLISHED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_PREP": {
+      "main": [
+        [
+          {
+            "node": "DEDUP_CHECK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "MERGE_DEDUP",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "DEDUP_CHECK": {
+      "main": [
+        [
+          {
+            "node": "MERGE_DEDUP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MERGE_DEDUP": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
+      "main": [
+        [
+          {
+            "node": "HTTP_FETCH_PAGE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "19735ecb-e800-4c86-8ecc-f37cf9f4ad70",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4aa50a435172310144101d1195362e557a1fcaad4286cb9b4d9a585aa9a4acf5"
+  },
+  "nodeGroups": [],
+  "id": "q9RluO18cBG2073D",
+  "tags": []
+}
