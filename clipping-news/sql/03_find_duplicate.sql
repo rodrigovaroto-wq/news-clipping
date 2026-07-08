@@ -4,8 +4,8 @@
 --   zone='gray'  -> ambíguo, vai para adjudicação por LLM (node GPT-API_DEDUP)
 --   (sem linha)  -> único, segue publicação
 --
--- Chamada no node DEDUP_CHECK: find_duplicate_v2($1::vector, $2)
---   $1 = embedding (string ::vector) | $2 = headline (para o trigrama)
+-- Chamada no node DEDUP_CHECK: find_duplicate_v2(embedding::vector, headline)
+--   parametro 1 = embedding | parametro 2 = headline (para o trigrama)
 --
 -- ATENÇÃO: defaults conservadores para 1536 dims. RECALIBRAR com sql/09_diagnostics.sql
 -- (medir cosseno/trgm de pares duplicados reais vs pares distintos) e ajustar aqui
