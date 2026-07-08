@@ -454,6 +454,16 @@
               "type": "dateTime",
               "canBeUsedToMatch": true,
               "removed": false
+            },
+            {
+              "id": "relevance_score",
+              "displayName": "relevance_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -513,7 +523,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 30 5-23 * * 1-5"
+              "expression": "0 0 7 * * 1-5"
             }
           ]
         }
@@ -555,7 +565,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// CODE_OGIMAGE — recupera dados do CODE_PREP + extrai og:image + corpo do texto (até 10000)\nconst idx = $itemIndex;\nlet orig = {};\ntry { orig = $('CODE_PREP').all()[idx].json; } catch (e) { orig = {}; }\n\nconst html = String($json.data || $json.body || $json.text || '');\n\n// --- imagem (og:image) ---\nlet img = orig.img || '';\nif (!img && html) {\n  const findMeta = (key) => {\n    let from = 0;\n    for (let g = 0; g < 200; g++) {\n      const mStart = html.indexOf('<meta', from);\n      if (mStart === -1) return '';\n      const mEnd = html.indexOf('>', mStart);\n      if (mEnd === -1) return '';\n      const tag = html.slice(mStart, mEnd + 1);\n      from = mEnd + 1;\n      if (tag.indexOf(key) === -1) continue;\n      const cAt = tag.indexOf('content=');\n      if (cAt === -1) continue;\n      const q = tag.charAt(cAt + 8);\n      const cEnd = tag.indexOf(q, cAt + 9);\n      if (cEnd === -1) continue;\n      let url = tag.slice(cAt + 9, cEnd).split('&amp;').join('&').trim();\n      if (url.indexOf('http') === 0) return url;\n    }\n    return '';\n  };\n  img = findMeta('og:image') || findMeta('twitter:image') || findMeta('og:image:url') || '';\n}\n\n// --- corpo do texto (até 10000) ---\nconst extractBody = (raw) => {\n  if (!raw) return '';\n  let h = String(raw);\n  h = h.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, ' ');\n  h = h.replace(/<nav[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<header[\\s\\S]*?<\\/header>/gi, ' ');\n  h = h.replace(/<footer[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<aside[\\s\\S]*?<\\/aside>/gi, ' ');\n  h = h.replace(/<form[\\s\\S]*?<\\/form>/gi, ' ');\n  let paras = [];\n  const re = /<p[^>]*>([\\s\\S]*?)<\\/p>/gi;\n  let m;\n  while ((m = re.exec(h)) !== null) {\n    let txt = m[1].replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n    if (txt.length >= 40) paras.push(txt);\n  }\n  let texto = paras.join('\\n\\n');\n  if (texto.length < 200) {\n    texto = h.replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n  }\n  if (texto.length > 10000) texto = texto.slice(0, 10000);\n  return texto;\n};\n\nlet bodyText = extractBody(html);\nif (!bodyText || bodyText.length < 200) bodyText = orig.summary || '';\n\nconst obj = {};\nobj.news_id = orig.news_id;\nobj.headline = orig.headline;\nobj.summary = orig.summary;\nobj.body_text = bodyText;\nobj.srcname = orig.srcname;\nobj.srcurl = orig.srcurl;\nobj.cat = orig.cat;\nobj.empresa = orig.empresa;\nobj.img = img;\nreturn { json: obj };"
+        "jsCode": "// CODE_OGIMAGE — recupera dados do CODE_TOP3 + extrai og:image + corpo do texto (até 10000)\nconst idx = $itemIndex;\nlet orig = {};\ntry { orig = $('CODE_TOP3').all()[idx].json; } catch (e) { orig = {}; }\n\nconst html = String($json.data || $json.body || $json.text || '');\n\n// --- imagem (og:image) ---\nlet img = orig.img || '';\nif (!img && html) {\n  const findMeta = (key) => {\n    let from = 0;\n    for (let g = 0; g < 200; g++) {\n      const mStart = html.indexOf('<meta', from);\n      if (mStart === -1) return '';\n      const mEnd = html.indexOf('>', mStart);\n      if (mEnd === -1) return '';\n      const tag = html.slice(mStart, mEnd + 1);\n      from = mEnd + 1;\n      if (tag.indexOf(key) === -1) continue;\n      const cAt = tag.indexOf('content=');\n      if (cAt === -1) continue;\n      const q = tag.charAt(cAt + 8);\n      const cEnd = tag.indexOf(q, cAt + 9);\n      if (cEnd === -1) continue;\n      let url = tag.slice(cAt + 9, cEnd).split('&amp;').join('&').trim();\n      if (url.indexOf('http') === 0) return url;\n    }\n    return '';\n  };\n  img = findMeta('og:image') || findMeta('twitter:image') || findMeta('og:image:url') || '';\n}\n\n// --- corpo do texto (até 10000) ---\nconst extractBody = (raw) => {\n  if (!raw) return '';\n  let h = String(raw);\n  h = h.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ');\n  h = h.replace(/<style[\\s\\S]*?<\\/style>/gi, ' ');\n  h = h.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, ' ');\n  h = h.replace(/<nav[\\s\\S]*?<\\/nav>/gi, ' ');\n  h = h.replace(/<header[\\s\\S]*?<\\/header>/gi, ' ');\n  h = h.replace(/<footer[\\s\\S]*?<\\/footer>/gi, ' ');\n  h = h.replace(/<aside[\\s\\S]*?<\\/aside>/gi, ' ');\n  h = h.replace(/<form[\\s\\S]*?<\\/form>/gi, ' ');\n  let paras = [];\n  const re = /<p[^>]*>([\\s\\S]*?)<\\/p>/gi;\n  let m;\n  while ((m = re.exec(h)) !== null) {\n    let txt = m[1].replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n    if (txt.length >= 40) paras.push(txt);\n  }\n  let texto = paras.join('\\n\\n');\n  if (texto.length < 200) {\n    texto = h.replace(/<[^>]+>/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\\s+/g, ' ').trim();\n  }\n  if (texto.length > 10000) texto = texto.slice(0, 10000);\n  return texto;\n};\n\nlet bodyText = extractBody(html);\nif (!bodyText || bodyText.length < 200) bodyText = orig.summary || '';\n\nconst obj = {};\nobj.news_id = orig.news_id;\nobj.headline = orig.headline;\nobj.summary = orig.summary;\nobj.body_text = bodyText;\nobj.srcname = orig.srcname;\nobj.srcurl = orig.srcurl;\nobj.cat = orig.cat;\nobj.empresa = orig.empresa;\nobj.img = img;\nreturn { json: obj };"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -647,7 +657,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 150,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é o auditor de triagem da Oria Partners. Uma primeira análise já classificou a notícia como RELEVANTE e atribuiu uma categoria. Sua tarefa é auditar essa decisão com rigor e ceticismo — você é a última barreira antes da publicação.\\n\\nFaça DUAS verificações:\\n\\n1. RELEVÂNCIA (rigorosa): a notícia descreve mesmo um evento corporativo concreto e já ocorrido/anunciado, com consequência sobre capital, controle, dívida, liquidez ou ativos? Na dúvida, responda relevante_confirmado=false. É melhor barrar uma boa do que publicar uma duvidosa.\\n\\nTESTE DECISIVO: algo concreto ACONTECEU (fato) ou o texto apenas INTERPRETA/OPINA (tese)? Análise de mercado, opinião ou tese NÃO são eventos: rejeite.\\n\\nSUCESSÃO DE EXECUTIVO: troca, nomeação ou saída de CEO/CFO/diretor SEM mudança de controle acionário, venda ou reorganização estrutural é rotina de governança e NÃO é publicável: responda relevante_confirmado=false.\\n\\nREGRA GEOGRÁFICA (FORTE): só confirme se o texto AFIRMA EXPLICITAMENTE elo com o Brasil (empresa brasileira, ativo/operação/dívida/efeito concreto no Brasil). Partes estrangeiras sem menção explícita ao Brasil: relevante_confirmado=false, por maior que seja o evento. Não presuma elo. Texto truncado ou de paywall NÃO é motivo de rejeição por si só. Avalie o elo com o Brasil no título e no trecho disponível; se o elo estiver explícito (ex: 'operação brasileira', 'ativo no Brasil'), confirme normalmente. Rejeite apenas se o elo com o Brasil não estiver afirmado em lugar nenhum do texto disponível.\\n\\n2. CATEGORIA: independentemente da sugerida, indique a CORRETA. Mudança de controle/reorganização = governanca; mera troca de executivo NÃO é governanca (é rejeição).\\n\\nCATEGORIAS (ordem de prioridade — a de cima vence):\\ninsolvencia > reestruturacao > desinvestimento > ma > emissao > captacao > governanca > liquidez\\n\\nDefinições:\\n- insolvencia: RJ, falência, liquidação, default.\\n- reestruturacao: renegociação/gestão de dívida em estresse, turnaround, waiver. Venda de ativo PARA pagar credores entra aqui.\\n- desinvestimento: venda de ativo/unidade/participação saudável.\\n- ma: aquisição/fusão/compra de controle sem estresse.\\n- emissao: debêntures, bonds, CRI, CRA, notes.\\n- captacao: IPO, follow-on, aporte, aumento de capital, rodada de investimento (inclui venture capital e startups).\\n- governanca: mudança de controle acionário, reorganização societária estrutural, spinoff/cisão, OPA, fechamento de capital, saída de bolsa.\\n- liquidez: caixa, linhas de crédito, sem reestruturação de passivo.\\n\\nREGRA DE FRONTEIRA: estresse financeiro define a categoria (insolvencia/reestruturacao) mesmo havendo venda de ativo ou aporte.\\n\\nResponda APENAS com JSON válido, sem markdown, sem texto extra: {\\\"relevante_confirmado\\\": true|false, \\\"categoria_correta\\\": \\\"<slug das 8>\\\", \\\"observacao\\\": \\\"<máx 15 palavras>\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"TÍTULO: \" + ($json.headline_original || '') + \"\\n\\nTEXTO: \" + ($json.raw_content || $json.summary_original || '').slice(0, 4000) + \"\\n\\nCATEGORIA SUGERIDA PELA PRIMEIRA ANÁLISE: \" + ($json._cat_triagem || '')) }}\n    }\n  ]\n}",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 200,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é o auditor de triagem da Oria Partners. Uma primeira análise já classificou a notícia como RELEVANTE e atribuiu uma categoria. Sua tarefa é auditar essa decisão com rigor e ceticismo — você é a última barreira antes da publicação.\\n\\nFaça DUAS verificações:\\n\\n1. RELEVÂNCIA (rigorosa): a notícia descreve mesmo um evento corporativo concreto e já ocorrido/anunciado, com consequência sobre capital, controle, dívida, liquidez ou ativos? Na dúvida, responda relevante_confirmado=false. É melhor barrar uma boa do que publicar uma duvidosa.\\n\\nTESTE DECISIVO: algo concreto ACONTECEU (fato) ou o texto apenas INTERPRETA/OPINA (tese)? Análise de mercado, opinião ou tese NÃO são eventos: rejeite.\\n\\nSUCESSÃO DE EXECUTIVO: troca, nomeação ou saída de CEO/CFO/diretor SEM mudança de controle acionário, venda ou reorganização estrutural é rotina de governança e NÃO é publicável: responda relevante_confirmado=false.\\n\\nREGRA GEOGRÁFICA (FORTE): só confirme se o texto AFIRMA EXPLICITAMENTE elo com o Brasil (empresa brasileira, ativo/operação/dívida/efeito concreto no Brasil). Partes estrangeiras sem menção explícita ao Brasil: relevante_confirmado=false, por maior que seja o evento. Não presuma elo. Texto truncado ou de paywall NÃO é motivo de rejeição por si só. Avalie o elo com o Brasil no título e no trecho disponível; se o elo estiver explícito (ex: 'operação brasileira', 'ativo no Brasil'), confirme normalmente. Rejeite apenas se o elo com o Brasil não estiver afirmado em lugar nenhum do texto disponível.\\n\\n2. CATEGORIA: independentemente da sugerida, indique a CORRETA. Mudança de controle/reorganização = governanca; mera troca de executivo NÃO é governanca (é rejeição).\\n\\nCATEGORIAS (ordem de prioridade — a de cima vence):\\ninsolvencia > reestruturacao > desinvestimento > ma > emissao > captacao > governanca > liquidez\\n\\nDefinições:\\n- insolvencia: RJ, falência, liquidação, default.\\n- reestruturacao: renegociação/gestão de dívida em estresse, turnaround, waiver. Venda de ativo PARA pagar credores entra aqui.\\n- desinvestimento: venda de ativo/unidade/participação saudável.\\n- ma: aquisição/fusão/compra de controle sem estresse.\\n- emissao: debêntures, bonds, CRI, CRA, notes.\\n- captacao: IPO, follow-on, aporte, aumento de capital, rodada de investimento (inclui venture capital e startups).\\n- governanca: mudança de controle acionário, reorganização societária estrutural, spinoff/cisão, OPA, fechamento de capital, saída de bolsa.\\n- liquidez: caixa, linhas de crédito, sem reestruturação de passivo.\\n\\nREGRA DE FRONTEIRA: estresse financeiro define a categoria (insolvencia/reestruturacao) mesmo havendo venda de ativo ou aporte.\\n\\n3. SCORE (só se relevante_confirmado=true; se false, use 0 em ambos). Dois inteiros de 0 a 100. Seja EXIGENTE e use toda a escala — a Oria publica apenas as 3 melhores do dia, então o score precisa separar o excepcional do meramente aceitável.\\n\\nscore_core — aderência ao CORE da Oria (reestruturação, special situations, insolvência, gestão de passivo em estresse, M&A/desinvestimento com ângulo de dívida/estresse):\\n- 85-100: coração do negócio — RJ, falência, default, renegociação/waiver/DIP, turnaround, venda de ativo para pagar credores, distressed M&A.\\n- 60-84: adjacente forte — M&A ou desinvestimento saudável de porte, reorganização societária estrutural, emissão/captação relevante ligada a alavancagem.\\n- 30-59: relevante mas periférico — emissão/captação de rotina, liquidez sem estresse, governança sem controle em disputa.\\n- 0-29: relevante no limite, pouca conexão com o core.\\n\\nscore_materialidade — porte e impacto do evento sobre estrutura de capital:\\n- 85-100: grande porte (bilionário), empresa/credores de peso, efeito estrutural claro e amplo.\\n- 60-84: porte relevante (centenas de milhões), partes conhecidas.\\n- 30-59: porte médio ou empresa pouco conhecida.\\n- 0-29: pequeno porte, impacto marginal, valores não revelados e partes obscuras.\\n\\nResponda APENAS com JSON válido, sem markdown, sem texto extra: {\\\"relevante_confirmado\\\": true|false, \\\"categoria_correta\\\": \\\"<slug das 8>\\\", \\\"score_core\\\": <0-100>, \\\"score_materialidade\\\": <0-100>, \\\"observacao\\\": \\\"<máx 15 palavras>\\\"}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"TÍTULO: \" + ($json.headline_original || '') + \"\\n\\nTEXTO: \" + ($json.raw_content || $json.summary_original || '').slice(0, 4000) + \"\\n\\nCATEGORIA SUGERIDA PELA PRIMEIRA ANÁLISE: \" + ($json._cat_triagem || '')) }}\n    }\n  ]\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -950,20 +960,7 @@
     },
     {
       "parameters": {
-        "maxItems": 15
-      },
-      "id": "06bee9da-ab16-470c-9b5f-2ed21bd5825a",
-      "name": "LIMIT_BATCH",
-      "type": "n8n-nodes-base.limit",
-      "typeVersion": 1,
-      "position": [
-        1760,
-        656
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// CODE_PREP vD — molda item + dedup semantico INTRA-LOTE\n// dedup vs-publicado = SQL find_duplicate (DEDUP_CHECK) | teto diario = no read\nconst canon = (u) => {\n  let s = String(u || '').trim().toLowerCase();\n  if (!s) return '';\n  s = s.replace(/^https?:\\/\\//, '').replace(/^www\\./, '');\n  s = s.split('?')[0].split('#')[0].replace(/\\/+$/, '');\n  return s;\n};\nconst getEmb = (obj) => {\n  try { if (obj && obj.data && obj.data[0] && Array.isArray(obj.data[0].embedding)) return obj.data[0].embedding; } catch (e) {}\n  return null;\n};\nconst cosine = (a, b) => {\n  if (!a || !b || a.length !== b.length) return 0;\n  let dot = 0, na = 0, nb = 0;\n  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }\n  if (na === 0 || nb === 0) return 0;\n  return dot / (Math.sqrt(na) * Math.sqrt(nb));\n};\nconst SIM_THRESHOLD = 0.82;\nconst doneUrls = {};\nconst embsRodada = [];\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json;\n  const cu = canon(r.source_url);\n  if (cu && doneUrls[cu]) continue;                 // url repetida no mesmo lote\n  const emb = getEmb(r);\n  if (emb) {                                         // dedup semantico INTRA-LOTE\n    let dup = false;\n    for (let k = 0; k < embsRodada.length; k++) {\n      if (cosine(emb, embsRodada[k]) >= SIM_THRESHOLD) { dup = true; break; }\n    }\n    if (dup) continue;\n  }\n  if (cu) doneUrls[cu] = true;\n  if (emb) embsRodada.push(emb);\n  const obj = {};\n  obj.news_id = r.news_id;\n  obj.headline = r.headline_original || '';\n  obj.summary = r.summary_original || '';\n  obj.srcname = r.source_name || '';\n  obj.srcurl = r.source_url || '';\n  obj.cat = r.primary_tag || 'economia';\n  obj.img = r.image_url || '';\n  obj.embedding = emb ? JSON.stringify(emb) : '';\n  out.push({ json: obj });\n}\nreturn out;"
+        "jsCode": "// CODE_PREP vE — molda item + dedup INTRA-LOTE híbrido (embedding + trigrama de título)\n// dedup vs-publicado = SQL find_duplicate_v2 (DEDUP_CHECK) | Top-3 = CODE_TOP3 | consolidação diária\nconst canon = (u) => {\n  let s = String(u || '').trim().toLowerCase();\n  if (!s) return '';\n  s = s.replace(/^https?:\\/\\//, '').replace(/^www\\./, '');\n  s = s.split('?')[0].split('#')[0].replace(/\\/+$/, '');\n  return s;\n};\nconst getEmb = (obj) => {\n  try { if (obj && obj.data && obj.data[0] && Array.isArray(obj.data[0].embedding)) return obj.data[0].embedding; } catch (e) {}\n  return null;\n};\nconst cosine = (a, b) => {\n  if (!a || !b || a.length !== b.length) return 0;\n  let dot = 0, na = 0, nb = 0;\n  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }\n  if (na === 0 || nb === 0) return 0;\n  return dot / (Math.sqrt(na) * Math.sqrt(nb));\n};\n// --- camada lexical: trigramas de título normalizado (Jaccard) ---\nconst normTitle = (s) => {\n  s = String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');\n  return s.replace(/[^a-z0-9 ]+/g, ' ').replace(/\\s+/g, ' ').trim();\n};\nconst trigrams = (s) => {\n  const t = '  ' + normTitle(s) + '  ';\n  const set = {};\n  for (let i = 0; i < t.length - 2; i++) set[t.slice(i, i + 3)] = true;\n  return Object.keys(set);\n};\nconst jaccard = (a, b) => {\n  if (!a.length || !b.length) return 0;\n  const A = {}; for (const g of a) A[g] = true;\n  let inter = 0; for (const g of b) if (A[g]) inter++;\n  const uni = a.length + b.length - inter;\n  return uni ? inter / uni : 0;\n};\nconst SIM_COS = 0.75;   // intra-lote: cosseno >= -> duplicata (agressivo; seguro no Top-3)\nconst SIM_TRG = 0.50;   // intra-lote: trigrama de título >= -> duplicata\nconst doneUrls = {};\nconst seen = [];        // [{emb, tri}]\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json;\n  const cu = canon(r.source_url);\n  if (cu && doneUrls[cu]) continue;                 // url repetida no mesmo lote\n  const emb = getEmb(r);\n  const tri = trigrams(r.headline_original || '');\n  let dup = false;                                  // dedup INTRA-LOTE híbrido\n  for (let k = 0; k < seen.length; k++) {\n    const cs = (emb && seen[k].emb) ? cosine(emb, seen[k].emb) : 0;\n    const tg = jaccard(tri, seen[k].tri);\n    if (cs >= SIM_COS || tg >= SIM_TRG) { dup = true; break; }\n  }\n  if (dup) continue;\n  if (cu) doneUrls[cu] = true;\n  seen.push({ emb: emb, tri: tri });\n  const obj = {};\n  obj.news_id = r.news_id;\n  obj.headline = r.headline_original || '';\n  obj.summary = r.summary_original || '';\n  obj.srcname = r.source_name || '';\n  obj.srcurl = r.source_url || '';\n  obj.cat = r.primary_tag || 'economia';\n  obj.img = r.image_url || '';\n  obj.embedding = emb ? JSON.stringify(emb) : '';\n  obj.relevance_score = Number(r.relevance_score || 0);   // p/ ranking Top-3 (CODE_TOP3)\n  out.push({ json: obj });\n}\nreturn out;\n"
       },
       "id": "16b94d47-6b27-4e09-8ef6-b16f59200f8c",
       "name": "CODE_PREP",
@@ -1021,7 +1018,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// CODE_RESOLVE — determinístico, Run Once for Each Item\n// Cruza triagem × verificação e aplica a regra de decisão\nconst idx = $itemIndex;\nlet prev = {};\ntry { prev = $('CODE_VALIDA_SCHEMA').item.json; } catch (e) { prev = {}; }\n\nconst CATS = ['insolvencia','reestruturacao','desinvestimento','ma','emissao','captacao','governanca','liquidez'];\n\nlet raw = '';\ntry { raw = ($json.choices && $json.choices[0] && $json.choices[0].message.content) || ''; } catch (e) { raw = ''; }\n\nlet v = null;\ntry { v = JSON.parse(String(raw).replace(/```json|```/g,'').trim()); } catch (e) { v = null; }\n\nconst b = new Date(Date.now() - 3*3600*1000);\nconst p = (n) => String(n).padStart(2,'0');\nconst data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\nconst out = { news_id: prev.news_id, updated_at: data };\nout._segue = true;   // chegou ao verificador => passou na triagem (auditoria coerente)\n\n// schema do verificador inválido → rejeita (conservador)\nconst vOk = v && typeof v.relevante_confirmado === 'boolean';\nif (!vOk) {\n  out.status = 'rejected';\n  out.qa_flags = 'rejected_schema_verifica';\n  return { json: out };\n}\n\n// regra 1: relevância negada = eliminatório\nif (v.relevante_confirmado === false) {\n  out.status = 'rejected';\n  out.primary_tag = '';\n  out.qa_flags = 'rejected_verifica: ' + (v.observacao || '');\n  return { json: out };\n}\n\n// regra 2: relevante confirmado → aprova; categoria do VERIFICADOR prevalece\nlet catFinal = CATS.includes(v.categoria_correta) ? v.categoria_correta : prev._cat_triagem;\nout.status = 'approved';\nout.primary_tag = catFinal;\nout.qa_flags = '';\nreturn { json: out };"
+        "jsCode": "// CODE_RESOLVE — cruza triagem × verificação, decide approved/rejected e calcula relevance_score\nlet prev = {};\ntry { prev = $('CODE_VALIDA_SCHEMA').item.json; } catch (e) { prev = {}; }\nlet orig = {};\ntry { orig = $('LOOP').item.json; } catch (e) { orig = {}; }\n\nconst CATS = ['insolvencia','reestruturacao','desinvestimento','ma','emissao','captacao','governanca','liquidez'];\n\nlet raw = '';\ntry { raw = ($json.choices && $json.choices[0] && $json.choices[0].message.content) || ''; } catch (e) { raw = ''; }\n\nlet v = null;\ntry { v = JSON.parse(String(raw).replace(/```json|```/g,'').trim()); } catch (e) { v = null; }\n\nconst b = new Date(Date.now() - 3*3600*1000);\nconst p = (n) => String(n).padStart(2,'0');\nconst data = b.getUTCFullYear()+'-'+p(b.getUTCMonth()+1)+'-'+p(b.getUTCDate())+' '+p(b.getUTCHours())+':'+p(b.getUTCMinutes())+':'+p(b.getUTCSeconds());\n\nconst out = { news_id: prev.news_id, updated_at: data };\nout._segue = true;   // chegou ao verificador => passou na triagem (auditoria coerente)\n\n// schema do verificador inválido → rejeita (conservador)\nconst vOk = v && typeof v.relevante_confirmado === 'boolean';\nif (!vOk) {\n  out.status = 'rejected';\n  out.qa_flags = 'rejected_schema_verifica';\n  out.relevance_score = 0;\n  return { json: out };\n}\n\n// regra 1: relevância negada = eliminatório\nif (v.relevante_confirmado === false) {\n  out.status = 'rejected';\n  out.primary_tag = '';\n  out.qa_flags = 'rejected_verifica: ' + (v.observacao || '');\n  out.relevance_score = 0;\n  return { json: out };\n}\n\n// regra 2: relevante confirmado → aprova; categoria do VERIFICADOR prevalece\nlet catFinal = CATS.includes(v.categoria_correta) ? v.categoria_correta : prev._cat_triagem;\n\n// score composto (0-100): 0.5*core + 0.3*materialidade + 0.2*autoridade_da_fonte\nconst tierMap = { 'Valor':1.0,'Brazil Journal':1.0,'NeoFeed':1.0,'Exame':0.7,'Capital Aberto':0.7,'Money Times':0.4 };\nconst clamp = (x) => Math.max(0, Math.min(100, Number(x) || 0));\nconst sCore = clamp(v.score_core);\nconst sMat  = clamp(v.score_materialidade);\nconst tier  = (tierMap[orig.source_name] != null) ? tierMap[orig.source_name] : 0.4;\nconst score = Math.round(0.5*sCore + 0.3*sMat + 0.2*100*tier);\n\nout.status = 'approved';\nout.primary_tag = catFinal;\nout.qa_flags = '';\nout.relevance_score = score;\nreturn { json: out };\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -1123,7 +1120,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "select * from raw_news\nwhere status = 'approved'\norder by created_at\nlimit greatest(0, 25 - (\n  select count(*) from published_news\n  where (published_at at time zone 'America/Sao_Paulo')::date\n      = (now() at time zone 'America/Sao_Paulo')::date\n));",
+        "query": "select * from raw_news\nwhere status = 'approved'\norder by relevance_score desc, created_at;",
         "options": {}
       },
       "id": "62fd6b73-8070-43de-a654-24e7cfa99250",
@@ -1565,7 +1562,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": {{ JSON.stringify(($json.headline_original || '') + ' ' + ($json.summary_original || '').slice(0, 300)) }},\n  \"dimensions\": 1536\n}",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": {{ JSON.stringify((($json.headline_original || '') + ' ' + ($json.summary_original || '').slice(0, 700)).replace(/\\s+/g, ' ').trim()) }},\n  \"dimensions\": 1536\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -1734,9 +1731,9 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "select exists (\n    select 1 from find_duplicate($1::vector)\n  ) as is_dup;",
+        "query": "select\n  coalesce(d.zone, 'none') as zone,\n  d.dup_news_id, d.similaridade, d.cand_headline, d.cand_summary\nfrom (select 1) x\nleft join lateral find_duplicate_v2($1::vector, $2) d on true;",
         "options": {
-          "queryReplacement": "={{ $json.embedding }}"
+          "queryReplacement": "={{ [$json.embedding, $json.headline] }}"
         }
       },
       "type": "n8n-nodes-base.postgres",
@@ -1802,6 +1799,97 @@
       ],
       "id": "9610d79f-a56b-4a38-ac31-f42f96efcb46",
       "name": "IF"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"max_tokens\": 60,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Você é o desduplicador do clipping da Oria Partners. Recebe DUAS notícias, A e B. Sua ÚNICA tarefa é decidir se as duas relatam o MESMO evento corporativo — ou seja, se publicar A ao lado de B seria repetir a mesma notícia.\\n\\nMESMO EVENTO (mesmo_evento=true) quando A e B tratam do mesmo fato concreto: mesma(s) empresa(s), mesma transação/ato (mesma aquisição, mesma recuperação judicial, mesma emissão, mesmo pedido de falência, mesma venda de ativo), ainda que:\\n- venham de fontes diferentes, com títulos e redação diferentes;\\n- tragam valores ou detalhes ligeiramente distintos;\\n- uma seja atualização/desdobramento imediato da outra sobre o mesmo ato.\\n\\nFATOS DISTINTOS (mesmo_evento=false) quando:\\n- envolvem empresas diferentes;\\n- é a MESMA empresa mas em atos/transações diferentes (ex.: A = emissão de debêntures; B = venda de subsidiária);\\n- B é um fato antigo e A é um novo desdobramento que constitui evento próprio e noticiável por si (ex.: B = pedido de RJ; A = plano de RJ aprovado meses depois). Na dúvida entre 'atualização do mesmo ato' e 'novo ato', só marque true se claramente é a mesma notícia.\\n\\nRegra de decisão: priorize barrar duplicata. Se A e B são claramente o mesmo evento, mesmo_evento=true. Só marque false quando houver diferença real de empresa ou de ato.\\n\\nResponda APENAS com JSON válido, sem markdown, sem texto extra: {\\\"mesmo_evento\\\": true|false}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify(\"NOTÍCIA A (candidata a publicar):\\nTÍTULO: \" + ($json.headline || '') + \"\\nRESUMO: \" + ($json.summary || '').slice(0, 600) + \"\\n\\nNOTÍCIA B (já publicada, mais similar):\\nTÍTULO: \" + ($json.cand_headline || '') + \"\\nRESUMO: \" + ($json.cand_summary || '').slice(0, 600)) }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1008,
+        860
+      ],
+      "id": "dd3fda9b-5ef2-47cd-aeaf-de20d330f32f",
+      "name": "GPT-API_DEDUP",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DpYGsTlWMPBsYvme",
+          "name": "OpenAI API"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1200,
+        800
+      ],
+      "id": "60404947-f077-4a1a-9ba7-724a2d76c5fd",
+      "name": "MERGE_DEDUP2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_DEDUP_RESOLVE — combina zona (find_duplicate_v2) + veredito do LLM (GPT-API_DEDUP)\n// e define is_dup final. Entra o item mesclado por posição (MERGE_DEDUP2).\nconst out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  const zone = j.zone || 'none';\n  let mesmo = false;                       // veredito do LLM (só usado na zona cinzenta)\n  try {\n    const raw = (j.choices && j.choices[0] && j.choices[0].message.content) || '';\n    const v = JSON.parse(String(raw).replace(/```json|```/g, '').trim());\n    mesmo = !!(v && v.mesmo_evento === true);\n  } catch (e) { mesmo = false; }\n  let is_dup = false;\n  if (zone === 'high') is_dup = true;       // cosseno/trigrama alto -> duplicata automática\n  else if (zone === 'gray') is_dup = mesmo; // ambíguo -> o LLM decide\n  else is_dup = false;                      // 'none' -> único\n  out.push({ json: {\n    news_id: j.news_id,\n    headline: j.headline || '',\n    summary: j.summary || '',\n    srcname: j.srcname || '',\n    srcurl: j.srcurl || '',\n    cat: j.cat || 'economia',\n    img: j.img || '',\n    embedding: j.embedding || '',\n    relevance_score: Number(j.relevance_score || 0),\n    is_dup: is_dup\n  }});\n}\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        800
+      ],
+      "id": "f701e88b-0d01-4eed-b935-b7dacc477113",
+      "name": "CODE_DEDUP_RESOLVE"
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_TOP3 — consolidação diária: ranqueia os ÚNICOS por relevance_score e publica só os 3 melhores.\n// Também é a âncora de recuperação por índice do CODE_OGIMAGE (ordem/contagem estáveis a jusante).\nconst items = $input.all().slice();\nitems.sort((a, b) => (Number(b.json.relevance_score || 0)) - (Number(a.json.relevance_score || 0)));\nreturn items.slice(0, 3);\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        656
+      ],
+      "id": "20013df2-7ea5-477d-9a1c-4d5b0604bf5b",
+      "name": "CODE_TOP3"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update raw_news\nset status = 'rejected', qa_flags = 'rejected_nao_top3'\nwhere status = 'approved';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2960,
+        560
+      ],
+      "id": "c0a1f79a-a7fa-43ca-bc58-b90977a5b5c6",
+      "name": "GS_CLOSE_UNSELECTED",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -1974,7 +2062,7 @@
       "main": [
         [
           {
-            "node": "LIMIT_BATCH",
+            "node": "GPT-API_RESUMO",
             "type": "main",
             "index": 0
           }
@@ -2042,17 +2130,6 @@
         [
           {
             "node": "GS_APPEND_PUBLISHED",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LIMIT_BATCH": {
-      "main": [
-        [
-          {
-            "node": "GPT-API_RESUMO",
             "type": "main",
             "index": 0
           }
@@ -2306,9 +2383,14 @@
       "main": [
         [
           {
-            "node": "IF",
+            "node": "GPT-API_DEDUP",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "MERGE_DEDUP2",
+            "type": "main",
+            "index": 1
           }
         ]
       ]
@@ -2317,12 +2399,67 @@
       "main": [
         [
           {
-            "node": "HTTP_FETCH_PAGE",
+            "node": "CODE_TOP3",
             "type": "main",
             "index": 0
           }
         ],
         []
+      ]
+    },
+    "GPT-API_DEDUP": {
+      "main": [
+        [
+          {
+            "node": "MERGE_DEDUP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MERGE_DEDUP2": {
+      "main": [
+        [
+          {
+            "node": "CODE_DEDUP_RESOLVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_DEDUP_RESOLVE": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_TOP3": {
+      "main": [
+        [
+          {
+            "node": "HTTP_FETCH_PAGE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_UPDATE_RAW": {
+      "main": [
+        [
+          {
+            "node": "GS_CLOSE_UNSELECTED",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -2330,7 +2467,8 @@
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "timezone": "America/Sao_Paulo"
   },
   "versionId": "19735ecb-e800-4c86-8ecc-f37cf9f4ad70",
   "meta": {
