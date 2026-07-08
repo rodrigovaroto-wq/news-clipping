@@ -28,8 +28,8 @@
   0.5*core + 0.3*materialidade + 0.2*100*tier_da_fonte.
 - Tier de fonte (autoridade): Valor/Brazil Journal/NeoFeed=1.0; Exame/Capital Aberto=0.7;
   Money Times/desconhecida=0.4.
-- PUBLISH deixou de ser de hora em hora e passou a rodar 1x/dia (cron 0 0 20 * * 1-5,
-  conferir timezone do n8n). Lê TODAS as aprovadas por score desc, deduplica o lote,
+- PUBLISH deixou de ser de hora em hora e passou a rodar 1x/dia às 07:00 BRT (cron 0 0 7 * * 1-5;
+  workflow com timezone=America/Sao_Paulo). Lê TODAS as aprovadas por score desc, deduplica o lote,
   CODE_TOP3 ranqueia e corta em 3, e GS_CLOSE_UNSELECTED marca o resto como rejected_nao_top3
   (evita acúmulo/stale competindo no dia seguinte).
 - CODE_OGIMAGE agora recupera do CODE_TOP3 (não do CODE_PREP): o ranking/slice reordena e reduz
@@ -57,7 +57,8 @@
 
 ## Pendências
 - Calibrar thresholds 1536 com pares reais (sql/09_diagnostics.sql) — refina precisão do dedup.
-- Confirmar o timezone do n8n antes de fixar a hora do PUBLISH diário.
+- PUBLISH fixado em 07:00 BRT (workflow timezone=America/Sao_Paulo). Se a instância n8n
+  estiver em UTC, o timezone do workflow prevalece; conferir na primeira execução.
 - Após criar relevance_score no banco, refrescar a lista de colunas do node GS_UPDATE-raw_news
   no n8n se o auto-map não reconhecer (a coluna já está no schema do JSON).
 - LIMPEZA_EMB provavelmente obsoleta com pgvector (find_duplicate_v2 já filtra janela).

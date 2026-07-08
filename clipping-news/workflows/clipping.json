@@ -523,7 +523,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 20 * * 1-5"
+              "expression": "0 0 7 * * 1-5"
             }
           ]
         }
@@ -2467,7 +2467,8 @@
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
-    "availableInMCP": false
+    "availableInMCP": false,
+    "timezone": "America/Sao_Paulo"
   },
   "versionId": "19735ecb-e800-4c86-8ecc-f37cf9f4ad70",
   "meta": {

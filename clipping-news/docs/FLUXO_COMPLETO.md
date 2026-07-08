@@ -71,7 +71,7 @@ O coração. Roda **1x/dia**: lê todas as `approved` acumuladas, gera embedding
 
 | Node | Tipo | Função | Recebe | Envia |
 |------|------|--------|--------|-------|
-| **TRIGGER_PUBLISH** | Schedule | Cron `0 0 20 * * 1-5` (**1x/dia**, 20:00 seg–sex; confira o TZ do n8n) | — | GS_READ_APPROVED |
+| **TRIGGER_PUBLISH** | Schedule | Cron `0 0 7 * * 1-5` (**1x/dia**, 07:00 BRT seg–sex; workflow `timezone=America/Sao_Paulo`) | — | GS_READ_APPROVED |
 | **GS_READ_APPROVED** | Postgres Execute Query | Lê **todas** as `status='approved'` `order by relevance_score desc` (sem teto SQL; o Top-3 é aplicado depois do dedup) | trigger | aprovados → EMBENDDING e Merge |
 | **EMBENDDING** | HTTP (OpenAI) | Gera embedding **1536 dims** de `headline_original + summary_original[:700]` (normalizado) | aprovados | vetores → Merge |
 | **Merge** | Merge (Combine by Position) | Rejunta cada item com seu embedding | aprovados + vetores | item+embedding → CODE_PREP |
@@ -140,7 +140,7 @@ Remove do site as publicadas antigas e as arquiva.
 
 - **LIMIT_BATCH** (teto de 15/execução): **removido** — substituído pelo **CODE_TOP3** (ranqueia por score e corta em 3).
 - **Novos nós**: `GPT-API_DEDUP` (adjudicador de zona cinzenta), `MERGE_DEDUP2`, `CODE_DEDUP_RESOLVE`, `CODE_TOP3`, `GS_CLOSE_UNSELECTED`.
-- **TRIGGER_PUBLISH**: de hora em hora → **1x/dia** (`0 0 20 * * 1-5`).
+- **TRIGGER_PUBLISH**: de hora em hora → **1x/dia** às 07:00 BRT (`0 0 7 * * 1-5`; workflow `timezone=America/Sao_Paulo`).
 - **GS_READ_APPROVED**: perdeu o teto diário de 25; passou a `order by relevance_score desc`.
 - **CODE_PREP**: dedup intra-lote virou **híbrido** (cosseno **ou** trigrama de título) e passou a carregar `relevance_score`.
 - **DEDUP_CHECK**: `find_duplicate` → **`find_duplicate_v2`** (zona + candidato; 2 parâmetros).
