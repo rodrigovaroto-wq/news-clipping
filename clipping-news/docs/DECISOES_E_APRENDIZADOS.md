@@ -43,6 +43,18 @@
 - GPT-API_DEDUP roda para todos os itens do lote diário (custo trivial no volume diário) e
   a rejunta é por posição (MERGE_DEDUP2, combineByPosition), padrão já usado no workflow.
 
+## Ajustes pós-teste real (backlog de ~1000 raw_news)
+- KEYWORD_PENEIRA rejeitava 52% do pool. Auditoria achou 2 falsos-negativos por
+  ambiguidade de palavra: 'estreia' (filme x "estreia na bolsa/no crédito") matou o M&A
+  "QI Tech compra Autobanking e estreia no crédito automotivo"; 'exposicao' (arte x
+  "exposição a dívida/câmbio/crédito") matou "Fundos de crédito com exposição acima de 50%
+  têm resgates de R$ 50 bi". Ambas REMOVIDAS da peneira — os casos de entretenimento/arte
+  que elas pegavam são barrados depois pelo LLM (filme/cinema/hollywood/museu + triagem).
+- CODE_RESOLVE ganhou fallback de score: se o verificador confirma relevância mas omite
+  score_core/score_materialidade, aplica baseline por categoria (insolvencia 90 ... liquidez 55)
+  e materialidade neutra 50. Motivo: no teste, um aprovado com score 0 foi publicado por
+  desempate de data, arbitrariamente, sobre 27 outros com score 0. Nunca deixar aprovado com score 0.
+
 ## Threshold de embedding
 - É ESPECÍFICO da dimensão. 0.82 foi calibrado em 256 dims e NÃO transfere para 1536.
 - Defaults conservadores atuais (1536): sim_high=0.80, sim_low=0.62, trgm_high=0.55, janela 5 dias.
