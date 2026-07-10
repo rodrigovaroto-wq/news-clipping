@@ -35,6 +35,19 @@
 - CODE_OGIMAGE agora recupera do CODE_TOP3 (não do CODE_PREP): o ranking/slice reordena e reduz
   o lote, então a recuperação por índice precisa ancorar no nó imediatamente antes do fetch.
 
+## Curadoria rígida (gate de score 80) — 2ª iteração pós-teste
+- Objetivo: publicar SÓ o indiscutível (evento corporativo real com o qual o cliente da Oria se identifica).
+- LLMs endurecidos: triagem e verifica ganharam o TESTE DO CLIENTE ORIA e rejeitam explicitamente
+  prévia/resultado trimestral (mesmo com moldura de reestruturação), entrevista/retrospectiva de
+  estratégia e intenção ("quer/planeja/busca/estuda") sem transação nova. Motivo: no teste real,
+  "Natura (prévia de resultado)" e "Serasa (entrevista de M&A)" venceram o Top-3 indevidamente.
+- Score virou de CONTEÚDO: relevance_score = 0.6·core + 0.4·materialidade (0-100), SEM a fonte.
+  A fonte saiu do score (não deve bloquear um evento ótimo de fonte menor) e virou só desempate no CODE_TOP3.
+- Verifica recalibrado: barra de 80; maioria dos relevantes fica 40-70; 80+ só para fato
+  inequívoco/material; teto rígido de 40 em core para prévia/entrevista/intenção/contexto.
+- CODE_TOP3 aplica gate MIN_SCORE=80 antes de cortar em 3 → pode publicar <3 (ou 0) num dia fraco.
+- Fallback de score (LLM omisso) baixado para 50 neutro: nunca clareia o gate — só o LLM habilita publicação.
+
 ## Dedup híbrido v2 (embedding + lexical + LLM)
 - 3 camadas: exato (unique) | intra-lote (CODE_PREP: cosseno OU trigrama de título) |
   vs-publicado (find_duplicate_v2 + zona cinzenta adjudicada por LLM).

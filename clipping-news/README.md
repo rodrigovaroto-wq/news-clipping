@@ -37,11 +37,13 @@ sql/04_source_registry_seed.sql
 ```
 Depois: importar workflows/clipping.json no n8n e apontar a credencial Postgres.
 
-## Seleção Top-3 do dia
-A triagem agora atribui `relevance_score` (0.5·core Oria + 0.3·materialidade + 0.2·autoridade
-da fonte). O PUBLISH roda **1x/dia** às **07:00 BRT** (cron `0 0 7 * * 1-5`; workflow com `timezone=America/Sao_Paulo`),
-deduplica o lote inteiro e publica apenas as **3 de maior score**; as demais aprovadas são
-encerradas (`rejected_nao_top3`).
+## Seleção Top-3 do dia (curadoria rígida)
+A triagem atribui `relevance_score` de **conteúdo** (`0.6·core Oria + 0.4·materialidade`, 0–100),
+independente da fonte. O PUBLISH roda **1x/dia** às **07:00 BRT** (cron `0 0 7 * * 1-5`; workflow com
+`timezone=America/Sao_Paulo`), deduplica o lote e publica **no máximo 3**, aplicando um
+**gate rígido: só publica com `relevance_score >= 80`** (evento corporativo indiscutível com o qual
+o cliente da Oria se identifica). Empate desfeito por autoridade da fonte. Dias fracos publicam
+menos de 3 (ou 0) — é o custo da curadoria. As demais aprovadas são encerradas (`rejected_nao_top3`).
 
 ## Dedup (3 camadas)
 1. **Exato** — `source_url`/`news_id` unique.

@@ -12,9 +12,13 @@ Faça DUAS verificações:
 
 1. RELEVÂNCIA (rigorosa): a notícia descreve mesmo um evento corporativo concreto e já ocorrido/anunciado, com consequência sobre capital, controle, dívida, liquidez ou ativos? Na dúvida, responda relevante_confirmado=false. É melhor barrar uma boa do que publicar uma duvidosa.
 
+TESTE DO CLIENTE ORIA: um cliente da Oria (empresa em estresse, credor, fundo de special situations, investidor em distressed/M&A) reconheceria aqui um EVENTO CONCRETO que o afeta? Se não, relevante_confirmado=false.
+
 TESTE DECISIVO: algo concreto ACONTECEU (fato) ou o texto apenas INTERPRETA/OPINA (tese)? Análise de mercado, opinião ou tese NÃO são eventos: rejeite.
 
 SUCESSÃO DE EXECUTIVO: troca, nomeação ou saída de CEO/CFO/diretor SEM mudança de controle acionário, venda ou reorganização estrutural é rotina de governança e NÃO é publicável: responda relevante_confirmado=false.
+
+PADRÕES QUE NÃO PUBLICAM (responda relevante_confirmado=false): prévia ou resultado trimestral com desafios operacionais, mesmo citando reestruturação; entrevista, perfil ou retrospectiva de estratégia; intenção ou estratégia (quer, planeja, busca, estuda) sem transação nova concreta anunciada agora.
 
 REGRA GEOGRÁFICA (FORTE): só confirme se o texto AFIRMA EXPLICITAMENTE elo com o Brasil (empresa brasileira, ativo/operação/dívida/efeito concreto no Brasil). Partes estrangeiras sem menção explícita ao Brasil: relevante_confirmado=false, por maior que seja o evento. Não presuma elo. Texto truncado ou de paywall NÃO é motivo de rejeição por si só. Avalie o elo com o Brasil no título e no trecho disponível; se o elo estiver explícito (ex: 'operação brasileira', 'ativo no Brasil'), confirme normalmente. Rejeite apenas se o elo com o Brasil não estiver afirmado em lugar nenhum do texto disponível.
 
@@ -35,7 +39,7 @@ Definições:
 
 REGRA DE FRONTEIRA: estresse financeiro define a categoria (insolvencia/reestruturacao) mesmo havendo venda de ativo ou aporte.
 
-3. SCORE (só se relevante_confirmado=true; se false, use 0 em ambos). Dois inteiros de 0 a 100. Seja EXIGENTE e use toda a escala — a Oria publica apenas as 3 melhores do dia, então o score precisa separar o excepcional do meramente aceitável.
+3. SCORE (score_core e score_materialidade, 0-100; se relevante_confirmado=false, use 0 em ambos). A BARRA DE PUBLICAÇÃO É 80: só passam eventos INDISCUTÍVEIS. Seja severo — a maioria das notícias relevantes fica entre 40 e 70; reserve 80+ para o fato inequívoco, concreto, material e com o qual um cliente da Oria (empresa em estresse, credor, fundo de special situations, investidor em distressed/M&A) se identifica diretamente. TETO RÍGIDO: prévia ou resultado trimestral, entrevista, retrospectiva, intenção ou estratégia (quer, planeja, busca, estuda) e contexto de setor têm score_core no máximo 40 — e provavelmente relevante_confirmado=false.
 
 score_core — aderência ao CORE da Oria (reestruturação, special situations, insolvência, gestão de passivo em estresse, M&A/desinvestimento com ângulo de dívida/estresse):
 - 85–100: coração do negócio — RJ, falência, default, renegociação/waiver/DIP, turnaround, venda de ativo para pagar credores, distressed M&A.

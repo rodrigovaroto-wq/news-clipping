@@ -13,6 +13,8 @@ Relevante = fato corporativo concreto e já ocorrido (ou formalmente anunciado) 
 
 TESTE DECISIVO: algo concreto ACONTECEU com uma empresa específica (fato), ou o texto apenas INTERPRETA/OPINA sobre o cenário (tese)? Se for tese, opinião ou análise de cenário, rejeite.
 
+TESTE DO CLIENTE ORIA: um cliente da Oria — empresa em estresse financeiro, credor, fundo de special situations, investidor em distressed/M&A — reconheceria nesta notícia um EVENTO CONCRETO que o afeta? Se o texto é contexto, opinião, estratégia, entrevista ou prévia de resultado, a resposta é não: rejeite. A Oria só publica o indiscutível.
+
 NÃO é relevante (rejeite, relevante=false):
 - Análise, opinião ou tese de mercado: textos que interpretam cenário, discutem tendências, avaliam riscos ou oportunidades sem um fato corporativo concreto e novo. Ex: 'por que o crédito privado está arriscado', 'o novo desafio para o investidor', 'gestores veem oportunidade em X'. Mencionar um tema relevante NÃO torna a notícia relevante se nada concreto ocorreu.
 - Compilado ou boletim de múltiplos eventos: matéria que AGREGA vários fatos ou várias empresas distintas num só texto, em vez de reportar UM fato corporativo único. Sinais: 'Agenda de empresas', 'Radar do mercado', 'Destaques do dia', 'e outros destaques', 'Confira os destaques', ou vários tickers/empresas diferentes listados (ex: 'Itaú, GPS, Embraer e outros'), cada um com seu próprio assunto. Nesses casos o 'fato' é a própria lista, então rejeite. ATENÇÃO: NÃO confundir com notícia de fato único que apenas MENCIONA outras empresas de passagem (comparação, contexto de setor, cadeia). Se há um evento central claro sobre uma empresa, NÃO rejeite por esta regra.
@@ -24,6 +26,8 @@ NÃO é relevante (rejeite, relevante=false):
 - Lançamento de produto, expansão de varejo, abertura de loja.
 - Entrevista ou opinião sem fato novo concreto.
 - Projeção, rumor vago, estuda, pode vir a, sem ato formal.
+- Prévia, estimativa ou resultado trimestral (receita ou lucro que sobe ou cai, guidance, desafios ou gargalos operacionais, troca de ERP), MESMO que cite reestruturação ou turnaround: sem um ATO estrutural novo e concreto (RJ protocolada, dívida renegociada, ativo vendido, controle transferido), rejeite.
+- Entrevista, perfil ou retrospectiva de estratégia: a empresa já fez X aquisições, quer ou planeja crescer ou comprar, tem estratégia de M&A ou expansão — sem uma transação NOVA e específica anunciada agora. Intenção e histórico não são fato.
 
 PRIORIDADE GEOGRÁFICA (REGRA FORTE): Brasil primeiro. Só é relevante se o texto AFIRMA EXPLICITAMENTE elo com o Brasil: empresa brasileira, ativo/operação/subsidiária no Brasil, dívida ou credores no Brasil, ou efeito concreto e declarado sobre empresa/mercado brasileiro. Se as partes são estrangeiras e o texto NÃO menciona o Brasil de forma explícita, rejeite (relevante=false), por maior que seja o valor. NÃO presuma elo: o vínculo precisa estar escrito no texto. Texto truncado ou de paywall ('matéria exclusiva para assinantes') NÃO é motivo de rejeição por si só: avalie o elo com o Brasil no que estiver disponível, inclusive no título. Se o elo com o Brasil estiver explícito mesmo no trecho curto (ex: 'operação brasileira', 'ativo no Brasil'), avalie normalmente. Rejeite apenas se, mesmo lendo título e trecho, o elo com o Brasil não estiver afirmado. Ex: 'Schneider (França) compra Cognite (Noruega)' sem citar Brasil = rejeitar. 'Holding italiana faz IPO na Nasdaq' sem citar Brasil = rejeitar.
 

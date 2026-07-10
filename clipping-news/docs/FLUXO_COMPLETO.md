@@ -56,7 +56,7 @@ Pega os `triagem_llm`, faz triagem + verificação por LLM e decide aprovado/rej
 | **CODE_VALIDA_SCHEMA** | Code | Valida o JSON da LLM; define `_cat_triagem`, `_just_triagem`, `_segue`, `status`, `qa_flags` | resposta | item avaliado → If |
 | **If** | If | Roteia: `_segue=true` → verificação; `false` → grava rejeição direto | avaliado | true→GPT-API_VERIFICA / false→GS_UPDATE-raw_news |
 | **GPT-API_VERIFICA** | HTTP (OpenAI) | 2ª passada: confirma relevância/categoria **e dá `score_core` + `score_materialidade` (0-100)** | itens `_segue=true` | verificação → CODE_RESOLVE |
-| **CODE_RESOLVE** | Code | Decisão final determinística: `approved`/`rejected`, categoria final, `qa_flags`, **e calcula `relevance_score` = 0.5·core + 0.3·materialidade + 0.2·autoridade da fonte** | verificação | decisão → GS_UPDATE-raw_news |
+| **CODE_RESOLVE** | Code | Decisão final determinística: `approved`/`rejected`, categoria final, `qa_flags`, **e calcula `relevance_score` de conteúdo = 0.6·core + 0.4·materialidade** (0–100, sem a fonte) | verificação | decisão → GS_UPDATE-raw_news |
 | **GS_UPDATE-raw_news** | Postgres Update | Persiste a decisão da triagem (match `news_id`) e devolve o controle ao LOOP | decisões | → LOOP (próximo item) |
 
 Resultado: candidatos viram `approved` (prontos p/ publicar) ou `rejected` (triagem/verifica).
@@ -82,7 +82,7 @@ O coração. Roda **1x/dia**: lê todas as `approved` acumuladas, gera embedding
 | **MERGE_DEDUP2** | Merge (Combine by Position) | Rejunta o veredito do LLM ao item completo | item + veredito | mesclado → CODE_DEDUP_RESOLVE |
 | **CODE_DEDUP_RESOLVE** | Code | Define `is_dup` final: `high`→dup, `gray`→veredito do LLM, `none`→único | mesclado | item+is_dup → IF |
 | **IF** | If | `is_dup=false` → segue; `true` → descarta | item+is_dup | true→CODE_TOP3 / false→✕ |
-| **CODE_TOP3** | Code | **Ranqueia os únicos por `relevance_score` e corta nos 3 melhores** (âncora de recuperação por índice do CODE_OGIMAGE) | únicos | top-3 → HTTP_FETCH_PAGE |
+| **CODE_TOP3** | Code | **Gate rígido `relevance_score >= 80`** + corta nos 3 melhores (empate por autoridade da fonte). Publica <3 (ou 0) em dia fraco. Âncora de recuperação por índice do CODE_OGIMAGE | únicos | top-3 (≥80) → HTTP_FETCH_PAGE |
 
 > **Por que dedup em vários lugares:** `find_duplicate_v2` só compara contra o publicado. Duplicatas do mesmo evento no **mesmo lote diário** ainda não estão no banco — quem as pega é o dedup intra-lote do CODE_PREP. A zona cinzenta (LLM) cobre os pares que o threshold sozinho não resolve.
 
