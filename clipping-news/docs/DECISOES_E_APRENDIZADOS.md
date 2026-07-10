@@ -35,6 +35,19 @@
 - CODE_OGIMAGE agora recupera do CODE_TOP3 (não do CODE_PREP): o ranking/slice reordena e reduz
   o lote, então a recuperação por índice precisa ancorar no nó imediatamente antes do fetch.
 
+## Curadoria rígida (gate de score 80) — 2ª iteração pós-teste
+- Objetivo: publicar SÓ o indiscutível (evento corporativo real com o qual o cliente da Oria se identifica).
+- LLMs endurecidos: triagem e verifica ganharam o TESTE DO CLIENTE ORIA e rejeitam explicitamente
+  prévia/resultado trimestral (mesmo com moldura de reestruturação), entrevista/retrospectiva de
+  estratégia e intenção ("quer/planeja/busca/estuda") sem transação nova. Motivo: no teste real,
+  "Natura (prévia de resultado)" e "Serasa (entrevista de M&A)" venceram o Top-3 indevidamente.
+- Score virou de CONTEÚDO: relevance_score = 0.6·core + 0.4·materialidade (0-100), SEM a fonte.
+  A fonte saiu do score (não deve bloquear um evento ótimo de fonte menor) e virou só desempate no CODE_TOP3.
+- Verifica recalibrado: barra de 80; maioria dos relevantes fica 40-70; 80+ só para fato
+  inequívoco/material; teto rígido de 40 em core para prévia/entrevista/intenção/contexto.
+- CODE_TOP3 aplica gate MIN_SCORE=80 antes de cortar em 3 → pode publicar <3 (ou 0) num dia fraco.
+- Fallback de score (LLM omisso) baixado para 50 neutro: nunca clareia o gate — só o LLM habilita publicação.
+
 ## Dedup híbrido v2 (embedding + lexical + LLM)
 - 3 camadas: exato (unique) | intra-lote (CODE_PREP: cosseno OU trigrama de título) |
   vs-publicado (find_duplicate_v2 + zona cinzenta adjudicada por LLM).
@@ -42,6 +55,18 @@
 - find_duplicate_v2 classifica zona: high (auto-dup), gray (LLM decide "mesmo_evento"), none (único).
 - GPT-API_DEDUP roda para todos os itens do lote diário (custo trivial no volume diário) e
   a rejunta é por posição (MERGE_DEDUP2, combineByPosition), padrão já usado no workflow.
+
+## Ajustes pós-teste real (backlog de ~1000 raw_news)
+- KEYWORD_PENEIRA rejeitava 52% do pool. Auditoria achou 2 falsos-negativos por
+  ambiguidade de palavra: 'estreia' (filme x "estreia na bolsa/no crédito") matou o M&A
+  "QI Tech compra Autobanking e estreia no crédito automotivo"; 'exposicao' (arte x
+  "exposição a dívida/câmbio/crédito") matou "Fundos de crédito com exposição acima de 50%
+  têm resgates de R$ 50 bi". Ambas REMOVIDAS da peneira — os casos de entretenimento/arte
+  que elas pegavam são barrados depois pelo LLM (filme/cinema/hollywood/museu + triagem).
+- CODE_RESOLVE ganhou fallback de score: se o verificador confirma relevância mas omite
+  score_core/score_materialidade, aplica baseline por categoria (insolvencia 90 ... liquidez 55)
+  e materialidade neutra 50. Motivo: no teste, um aprovado com score 0 foi publicado por
+  desempate de data, arbitrariamente, sobre 27 outros com score 0. Nunca deixar aprovado com score 0.
 
 ## Threshold de embedding
 - É ESPECÍFICO da dimensão. 0.82 foi calibrado em 256 dims e NÃO transfere para 1536.
