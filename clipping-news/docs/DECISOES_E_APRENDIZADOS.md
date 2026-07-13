@@ -48,6 +48,18 @@
 - CODE_TOP3 aplica gate MIN_SCORE=80 antes de cortar em 3 → pode publicar <3 (ou 0) num dia fraco.
 - Fallback de score (LLM omisso) baixado para 50 neutro: nunca clareia o gate — só o LLM habilita publicação.
 
+## Recall gap dos compilados — rede de segurança REVISAR
+- Problema: a triagem barra compilados ("Agenda de empresas") inteiros e perde eventos core
+  escondidos neles (ex.: RJ da Oi, recuperação extrajudicial da Unimed).
+- Solução (Opção A, simples e sem migração): no CODE_VALIDA_SCHEMA, quando a triagem rejeita
+  um item cujo texto tem sinal FORTE de distress (recuperação judicial/extrajudicial, falência,
+  liquidação, default, intervenção), o qa_flags recebe o selo `rejected_triagem_REVISAR:`.
+  O item continua não-publicado, mas o operador o encontra com a query de recall gap
+  (sql/09_diagnostics.sql) e puxa a matéria individual à mão.
+- Também funciona como rede dupla: pega qualquer distress que a triagem tenha rejeitado por engano.
+- Alternativa não adotada (Opção B): splitter por LLM que quebra o compilado em eventos e
+  re-tria cada um — recall máximo, mas mais complexo de manter.
+
 ## Dedup híbrido v2 (embedding + lexical + LLM)
 - 3 camadas: exato (unique) | intra-lote (CODE_PREP: cosseno OU trigrama de título) |
   vs-publicado (find_duplicate_v2 + zona cinzenta adjudicada por LLM).
