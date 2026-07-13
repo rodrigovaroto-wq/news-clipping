@@ -75,3 +75,13 @@ where a.news_id = 'NEWS_8999_s_54' and b.news_id = 'NEWS_8999_s_1';
 --                sim_low  ~ acima do p90-dos-pares (ruído), abaixo do cosseno_duplicata;
 --                trgm_high ~ acima do p99-de-título. Atualizar em DOIS lugares:
 --                default de find_duplicate_v2 (sql/03) e SIM_THRESHOLD do CODE_PREP.
+
+-- ============ RECALL GAP — compilados/rejeitados com sinal de distress ============
+-- Itens que a triagem rejeitou MAS carregam sinal forte de distress (ex.: "Agenda de
+-- empresas" escondendo RJ da Oi/Unimed). Selados com REVISAR pelo CODE_VALIDA_SCHEMA.
+-- Rodar periodicamente; puxar a matéria individual à mão se valer publicar.
+select created_at, source_name, headline_original, qa_flags
+from raw_news
+where qa_flags like '%REVISAR%'
+order by created_at desc
+limit 50;
