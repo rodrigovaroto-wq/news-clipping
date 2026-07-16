@@ -92,6 +92,35 @@
 - qa_flags: motivo + justificativa ('rejected_triagem: ...', 'rejected_keyword', etc.)
 - _segue (bool): true=passou triagem, false=barrada triagem, null=barrada keyword
 
+## Sitemap/indexação (camada nova, desacoplada)
+- Objetivo: manter `public/news-sitemap.xml`/`public/robots.txt` do repo do SITE (não deste repo
+  de workflow) sempre sincronizados com o que está publicado, sem tocar PUBLISH/EXPIRE.
+- Tabela `sitemap_urls` SEM foreign key para `published_news` — mesma convenção das outras 4
+  tabelas do projeto (raw_news/published_news/expired_news/source_registry também não têm FK
+  entre si). Falhas na camada de sitemap nunca devem bloquear a curadoria.
+- `sitemap_log` é tabela SEPARADA de `sitemap_urls`: a primeira é série temporal de execuções
+  (observabilidade), a segunda é estado atual (1 linha por notícia) — misturar as duas quebraria
+  as duas semânticas.
+- Hash de mudança calculado com **FNV-1a implementado em JS puro**, não `require('crypto')`:
+  o Code node do n8n roda em sandbox e módulos built-in do Node podem não estar liberados
+  (depende de `NODE_FUNCTION_ALLOW_BUILTIN` da instância). FNV-1a não precisa ser criptográfico,
+  só determinístico para detectar "mudou ou não".
+- Geração do XML em Code node JS, não em função SQL: evita escaping manual de XML em SQL E evita
+  reintroduzir o bug de `$1`/`$2` em comentário dentro de bloco `$$...$$` (já corrigido uma vez
+  neste projeto, ver find_duplicate_v2). Nenhuma função `$$...$$` nova foi criada em sql/10.
+- Padrão de commit no GitHub: tenta `edit` com `continueOnFail`; se falhar (1ª execução, arquivo
+  não existe), cai para `create`. Evita depender do formato exato de resposta de um `get` prévio.
+  **Não validado contra n8n real** — se a detecção de erro (`!!$json.error`) não bater com o
+  formato desta versão, ajustar (ver docs/FLUXO_COMPLETO.md, seção riscos).
+- `robots.txt` é overwrite idempotente (conteúdo 100% gerado pelo pipeline, comparado por hash) —
+  se o repo do site algum dia tiver um `robots.txt` customizado à mão, trocar para estratégia de
+  patch (ler o arquivo antes de escrever, preservar regras extras).
+- Anexação segura: `GS_APPEND_PUBLISHED` (fim do PUBLISH) e `GS_UPDATE_PUBLISHED` (fim do EXPIRE)
+  eram nós terminais (sem saída) — a camada nova só anexa ali, nunca modifica a lógica existente.
+- Search Console: scaffold completo mas com dupla trava `disabled:true` (trigger + node HTTP),
+  sem credencial anexada — o usuário ainda não tem OAuth2 configurado. Sitemap já funciona sozinho
+  via `robots.txt` sem essa submissão automática.
+
 ## Pendências
 - Calibrar thresholds 1536 com pares reais (sql/09_diagnostics.sql) — refina precisão do dedup.
 - PUBLISH fixado em 07:00 BRT (workflow timezone=America/Sao_Paulo). Se a instância n8n
@@ -100,3 +129,8 @@
   no n8n se o auto-map não reconhecer (a coluna já está no schema do JSON).
 - LIMPEZA_EMB provavelmente obsoleta com pgvector (find_duplicate_v2 já filtra janela).
 - Virar repo GitHub de teste -> produção. Backups no PikaPods.
+- Configurar `SITE_BASE_URL` nas variáveis do n8n antes de rodar o PUBLISH pela primeira vez
+  após esta entrega (senão cai no fallback `https://oriapartners.com` embutido nos nós).
+- Verificar comportamento real de `edit`/`continueOnFail` do node GitHub nesta versão do n8n na
+  primeira execução do sitemap (ver riscos documentados em FLUXO_COMPLETO.md).
+- Ativar a submissão ao Search Console quando houver credencial OAuth2 (ver sticky note no canvas).
