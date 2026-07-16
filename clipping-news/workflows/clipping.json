@@ -1890,6 +1890,1082 @@
           "name": "Postgres account"
         }
       }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_BUILD_SITEMAP_ROW — monta a linha da sitemap_urls a partir do CODE_BUILD_PUBROW\n// (o Postgres troca o item; recupera por indice, mesmo padrao de CODE_RAWSTATE).\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_BUILD_PUBROW').all()[idx].json; } catch (e) { j = $json; }\n\nconst base = String($vars.SITE_BASE_URL || 'https://oriapartners.com').replace(/\\/+$/, '');\nconst cat = j.category || 'economia'; // fallback herdado do CODE_BUILD_PUBROW\n\nconst obj = {};\nobj.news_id = j.news_id;\nobj.url = base + '/noticias/' + cat + '/' + j.slug;\nobj.slug = j.slug;\nobj.category = cat;\nobj.published_at = j.published_at; // string BRT ja formatada por CODE_BUILD_PUBROW\nreturn { json: obj };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3200,
+        560
+      ],
+      "id": "91c9da80-c156-4cb7-b8dc-782ace53fc5f",
+      "name": "CODE_BUILD_SITEMAP_ROW"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into sitemap_urls (\n  news_id, url, slug, category, status, is_indexable,\n  published_at, expires_at, lastmod\n) values (\n  $1, $2, $3, $4, 'published', true,\n  $5::timestamptz, $5::timestamptz + interval '30 days', $5::timestamptz\n)\non conflict (news_id) do update set\n  url = excluded.url, slug = excluded.slug, category = excluded.category,\n  status = excluded.status, is_indexable = excluded.is_indexable,\n  published_at = excluded.published_at, expires_at = excluded.expires_at,\n  lastmod = now();",
+        "options": {
+          "queryReplacement": "={{ [$json.news_id, $json.url, $json.slug, $json.category, $json.published_at] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3400,
+        560
+      ],
+      "id": "a2674463-f3e8-4d25-84c2-538a9e6c1f84",
+      "name": "GS_UPSERT_SITEMAP_URL",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_COLLAPSE_TO_ONE1 — reduz ate 3 itens publicados no run a 1 so disparo\n// de regeneracao do sitemap (evita commitar/logar 3x no mesmo run do PUBLISH).\nreturn [{ json: { count: $input.all().length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        560
+      ],
+      "id": "8aec1d10-0309-45a9-a265-07da8b4f3a1e",
+      "name": "CODE_COLLAPSE_TO_ONE1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select xml_hash, robots_hash\nfrom sitemap_log\nwhere xml_hash is not null\norder by ran_at desc\nlimit 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3800,
+        560
+      ],
+      "id": "bb061bf1-a04b-47dc-8880-f3334a223446",
+      "name": "SITEMAP_READ_LASTHASH1",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select url, category, slug, lastmod\nfrom sitemap_urls\nwhere status = 'published' and is_indexable = true and expires_at > now()\norder by url;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4000,
+        560
+      ],
+      "id": "4e67a6ff-87a4-4e2d-8b2d-55d5d0d29506",
+      "name": "SITEMAP_READ_INDEXABLE1",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SITEMAP_BUILD_XML1 — monta o XML do sitemap + robots.txt, calcula hash\n// (FNV-1a puro JS, sem require('crypto') que pode nao estar liberado no sandbox\n// do Code node) e decide se algo mudou desde o ultimo commit\n// (SITEMAP_READ_LASTHASH1). NAO toca published_news.\n// robots.txt e overwrite idempotente (conteudo 100% gerado por este pipeline,\n// comparado por hash). Se o repo do site ja tiver um robots.txt customizado\n// manualmente, trocar para estrategia de patch (ler o arquivo antes de escrever).\nconst fnv1a = (str) => {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193);\n  }\n  return (h >>> 0).toString(16).padStart(8, '0');\n};\nconst esc = (s) => String(s || '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;').replace(/'/g, '&apos;');\n\nlet lastHash = {};\ntry { lastHash = $('SITEMAP_READ_LASTHASH1').first().json || {}; } catch (e) { lastHash = {}; }\n\nconst rows = $('SITEMAP_READ_INDEXABLE1').all().map(it => it.json);\n\nconst urlBlocks = rows.map(r => {\n  const lm = new Date(r.lastmod);\n  const day = isNaN(lm.getTime()) ? '' : lm.toISOString().slice(0, 10);\n  return '  <url>\\n    <loc>' + esc(r.url) + '</loc>\\n    <lastmod>' + day + '</lastmod>\\n  </url>';\n}).join('\\n');\n\nconst xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\\n' +\n  '<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\\n' +\n  (urlBlocks ? urlBlocks + '\\n' : '') +\n  '</urlset>\\n';\n\nconst base = String($vars.SITE_BASE_URL || 'https://oriapartners.com').replace(/\\/+$/, '');\nconst robots = 'User-agent: *\\nAllow: /\\n\\nSitemap: ' + base + '/news-sitemap.xml\\n';\n\nconst xmlHash = fnv1a(xml);\nconst robotsHash = fnv1a(robots);\n\nreturn [{ json: {\n  xml: xml,\n  robots: robots,\n  url_count: rows.length,\n  xml_hash: xmlHash,\n  robots_hash: robotsHash,\n  changed: xmlHash !== (lastHash.xml_hash || ''),\n  robotsChanged: robotsHash !== (lastHash.robots_hash || '')\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        560
+      ],
+      "id": "99552034-20a1-481b-8a0f-a42b466db8fe",
+      "name": "SITEMAP_BUILD_XML1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cad1e29f-5808-458e-9c89-8af252b6d6c1",
+              "leftValue": "={{ $('SITEMAP_BUILD_XML1').first().json.changed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4400,
+        560
+      ],
+      "id": "9f6f681b-c832-45bc-b636-466794713e63",
+      "name": "IF_SITEMAP_CHANGED1"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/news-sitemap.xml",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML1').first().json.xml }}",
+        "commitMessage": "={{ 'chore: update news-sitemap.xml (' + $('SITEMAP_BUILD_XML1').first().json.url_count + ' urls)' }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        4620,
+        480
+      ],
+      "id": "776d1a95-7376-4036-9dcf-7960100a47fa",
+      "name": "GITHUB_EDIT_SITEMAP1",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ed021b09-7376-4788-8866-78345610ae47",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4820,
+        480
+      ],
+      "id": "81d85f12-1173-4311-a177-395730237a27",
+      "name": "IF_SITEMAP_EDIT_FAILED1"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/news-sitemap.xml",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML1').first().json.xml }}",
+        "commitMessage": "={{ 'chore: create news-sitemap.xml (' + $('SITEMAP_BUILD_XML1').first().json.url_count + ' urls)' }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        5020,
+        420
+      ],
+      "id": "0e055525-110a-4700-ba23-2c2a194ad041",
+      "name": "GITHUB_CREATE_SITEMAP1",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update sitemap_urls\nset sitemap_included_at = now()\nwhere status = 'published' and is_indexable = true and expires_at > now();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        5220,
+        500
+      ],
+      "id": "291979b4-2ea4-458d-85ad-18dac37f317c",
+      "name": "GS_MARK_INCLUDED1",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9218be65-3aad-48e1-989b-5d36d4bcacdf",
+              "leftValue": "={{ $('SITEMAP_BUILD_XML1').first().json.robotsChanged }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5440,
+        560
+      ],
+      "id": "bfeab9cd-e39c-41d7-bc07-5de6fbf47e16",
+      "name": "IF_ROBOTS_CHANGED1"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/robots.txt",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML1').first().json.robots }}",
+        "commitMessage": "chore: update robots.txt (sitemap reference)",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        5660,
+        480
+      ],
+      "id": "e663ec8e-83c8-4bf7-b0d1-ae033c3ef4f3",
+      "name": "GITHUB_EDIT_ROBOTS1",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8e5f8416-5459-4040-8175-8fa266ebcae9",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5860,
+        480
+      ],
+      "id": "f226eeed-acb1-459b-b86d-adf891f7c2f6",
+      "name": "IF_ROBOTS_EDIT_FAILED1"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/robots.txt",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML1').first().json.robots }}",
+        "commitMessage": "chore: create robots.txt (sitemap reference)",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        6060,
+        420
+      ],
+      "id": "b7c39cc8-6690-4f66-ba08-8b791c900c7c",
+      "name": "GITHUB_CREATE_ROBOTS1",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into sitemap_log (run_type, url_count, xml_hash, robots_hash, committed, divergence_count)\nvalues (\n  $1, $2, $3, $4, $5,\n  (select count(*) from published_news where publication_status='published') -\n  (select count(*) from sitemap_urls where status='published' and is_indexable and expires_at > now())\n);",
+        "options": {
+          "queryReplacement": "={{ ['sync_on_publish', $('SITEMAP_BUILD_XML1').first().json.url_count, $('SITEMAP_BUILD_XML1').first().json.xml_hash, $('SITEMAP_BUILD_XML1').first().json.robots_hash, $('SITEMAP_BUILD_XML1').first().json.changed] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        6280,
+        560
+      ],
+      "id": "6f915a48-3700-44da-be73-98660051ac5a",
+      "name": "GS_LOG_SITEMAP1",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */12 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        3200,
+        1000
+      ],
+      "id": "2d00eedb-5ca1-484c-8e4a-3afca17c0e7f",
+      "name": "TRIGGER_RECONCILE_SITEMAP"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select s.news_id\nfrom sitemap_urls s\njoin published_news p on p.news_id = s.news_id\nwhere s.is_indexable = true\n  and (s.expires_at <= now() or p.publication_status = 'expired');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3400,
+        1000
+      ],
+      "id": "195ba621-3631-4d50-950f-3c7048a04f7e",
+      "name": "GS_READ_TO_EXPIRE",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_COUNT_CHECK — corta o fluxo se nao ha nada para reconciliar (evita ruido\n// de log/commit a cada 12 min). Retornar [] interrompe o resto da cadeia.\nconst items = $input.all();\nif (!items.length) return [];\nreturn [{ json: { ids: items.map(it => it.json.news_id) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        1000
+      ],
+      "id": "4fb46aca-08d1-4902-a079-2b82db24c39c",
+      "name": "CODE_COUNT_CHECK"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update sitemap_urls\nset status = 'expired', is_indexable = false, lastmod = now()\nwhere news_id = any($1);",
+        "options": {
+          "queryReplacement": "={{ [$json.ids] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3800,
+        1000
+      ],
+      "id": "61f39711-89c8-498a-940c-3c2bd421c1c4",
+      "name": "GS_MARK_SITEMAP_EXPIRED",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select xml_hash, robots_hash\nfrom sitemap_log\nwhere xml_hash is not null\norder by ran_at desc\nlimit 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4000,
+        1000
+      ],
+      "id": "cddca930-2037-4c81-af6c-cce142f453dc",
+      "name": "SITEMAP_READ_LASTHASH2",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select url, category, slug, lastmod\nfrom sitemap_urls\nwhere status = 'published' and is_indexable = true and expires_at > now()\norder by url;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4200,
+        1000
+      ],
+      "id": "9ae22163-b097-40c6-8103-c0d7ba0fe295",
+      "name": "SITEMAP_READ_INDEXABLE2",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SITEMAP_BUILD_XML2 — monta o XML do sitemap + robots.txt, calcula hash\n// (FNV-1a puro JS, sem require('crypto') que pode nao estar liberado no sandbox\n// do Code node) e decide se algo mudou desde o ultimo commit\n// (SITEMAP_READ_LASTHASH2). NAO toca published_news.\n// robots.txt e overwrite idempotente (conteudo 100% gerado por este pipeline,\n// comparado por hash). Se o repo do site ja tiver um robots.txt customizado\n// manualmente, trocar para estrategia de patch (ler o arquivo antes de escrever).\nconst fnv1a = (str) => {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < str.length; i++) {\n    h ^= str.charCodeAt(i);\n    h = Math.imul(h, 0x01000193);\n  }\n  return (h >>> 0).toString(16).padStart(8, '0');\n};\nconst esc = (s) => String(s || '')\n  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;').replace(/'/g, '&apos;');\n\nlet lastHash = {};\ntry { lastHash = $('SITEMAP_READ_LASTHASH2').first().json || {}; } catch (e) { lastHash = {}; }\n\nconst rows = $('SITEMAP_READ_INDEXABLE2').all().map(it => it.json);\n\nconst urlBlocks = rows.map(r => {\n  const lm = new Date(r.lastmod);\n  const day = isNaN(lm.getTime()) ? '' : lm.toISOString().slice(0, 10);\n  return '  <url>\\n    <loc>' + esc(r.url) + '</loc>\\n    <lastmod>' + day + '</lastmod>\\n  </url>';\n}).join('\\n');\n\nconst xml = '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\\n' +\n  '<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\\n' +\n  (urlBlocks ? urlBlocks + '\\n' : '') +\n  '</urlset>\\n';\n\nconst base = String($vars.SITE_BASE_URL || 'https://oriapartners.com').replace(/\\/+$/, '');\nconst robots = 'User-agent: *\\nAllow: /\\n\\nSitemap: ' + base + '/news-sitemap.xml\\n';\n\nconst xmlHash = fnv1a(xml);\nconst robotsHash = fnv1a(robots);\n\nreturn [{ json: {\n  xml: xml,\n  robots: robots,\n  url_count: rows.length,\n  xml_hash: xmlHash,\n  robots_hash: robotsHash,\n  changed: xmlHash !== (lastHash.xml_hash || ''),\n  robotsChanged: robotsHash !== (lastHash.robots_hash || '')\n} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4400,
+        1000
+      ],
+      "id": "6e130c11-4620-4ab5-bb0f-cd0111e514c9",
+      "name": "SITEMAP_BUILD_XML2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5a631b15-0982-4e24-b82a-8840f8bd0976",
+              "leftValue": "={{ $('SITEMAP_BUILD_XML2').first().json.changed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4600,
+        1000
+      ],
+      "id": "2a795b8f-438a-48a8-875a-fa1e74bc577f",
+      "name": "IF_SITEMAP_CHANGED2"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/news-sitemap.xml",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML2').first().json.xml }}",
+        "commitMessage": "={{ 'chore: update news-sitemap.xml (' + $('SITEMAP_BUILD_XML2').first().json.url_count + ' urls)' }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        4820,
+        920
+      ],
+      "id": "7a998c6e-c3f7-47d4-8b5b-e1f4eacda5c8",
+      "name": "GITHUB_EDIT_SITEMAP2",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "eda5167b-bcbf-4d2f-a863-e281c617eec7",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5020,
+        920
+      ],
+      "id": "d8ec81dd-ac5c-413f-b9d3-778374c0abeb",
+      "name": "IF_SITEMAP_EDIT_FAILED2"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/news-sitemap.xml",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML2').first().json.xml }}",
+        "commitMessage": "={{ 'chore: create news-sitemap.xml (' + $('SITEMAP_BUILD_XML2').first().json.url_count + ' urls)' }}",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        5220,
+        860
+      ],
+      "id": "aca38d79-dba5-4ed8-bd78-3d60bc694070",
+      "name": "GITHUB_CREATE_SITEMAP2",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update sitemap_urls\nset sitemap_included_at = now()\nwhere status = 'published' and is_indexable = true and expires_at > now();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        5420,
+        940
+      ],
+      "id": "14200b37-42bf-45ea-b47e-399d77e1f115",
+      "name": "GS_MARK_INCLUDED2",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "800f9576-794f-4e2b-bfd6-d6d1be8bae8c",
+              "leftValue": "={{ $('SITEMAP_BUILD_XML2').first().json.robotsChanged }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5640,
+        1000
+      ],
+      "id": "0b30bf8a-e656-4a60-94d9-5ed6ef15b575",
+      "name": "IF_ROBOTS_CHANGED2"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "edit",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/robots.txt",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML2').first().json.robots }}",
+        "commitMessage": "chore: update robots.txt (sitemap reference)",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        5860,
+        920
+      ],
+      "id": "5a26372f-1c6f-4ce5-802d-b263e385f023",
+      "name": "GITHUB_EDIT_ROBOTS2",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "238e3c65-592d-4056-9e76-c1d4275de9b2",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        6060,
+        920
+      ],
+      "id": "c33f988d-a41b-4e99-a15d-397f7315d086",
+      "name": "IF_ROBOTS_EDIT_FAILED2"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "create",
+        "owner": {
+          "__rl": true,
+          "value": "={{ $vars.GH_OWNER || 'rodrigovaroto-wq' }}",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "={{ $vars.GH_REPO || 'oria-clipping-test' }}",
+          "mode": "name"
+        },
+        "filePath": "public/robots.txt",
+        "fileContent": "={{ $('SITEMAP_BUILD_XML2').first().json.robots }}",
+        "commitMessage": "chore: create robots.txt (sitemap reference)",
+        "additionalParameters": {
+          "branch": {
+            "branch": "main"
+          }
+        }
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [
+        6260,
+        860
+      ],
+      "id": "3c253be6-c8eb-4591-ad82-c655be2af18c",
+      "name": "GITHUB_CREATE_ROBOTS2",
+      "credentials": {
+        "githubApi": {
+          "id": "XLt1S5vUCRmbCgvf",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into sitemap_log (run_type, url_count, xml_hash, robots_hash, committed, divergence_count)\nvalues (\n  $1, $2, $3, $4, $5,\n  (select count(*) from published_news where publication_status='published') -\n  (select count(*) from sitemap_urls where status='published' and is_indexable and expires_at > now())\n);",
+        "options": {
+          "queryReplacement": "={{ ['reconcile_expired', $('SITEMAP_BUILD_XML2').first().json.url_count, $('SITEMAP_BUILD_XML2').first().json.xml_hash, $('SITEMAP_BUILD_XML2').first().json.robots_hash, $('SITEMAP_BUILD_XML2').first().json.changed] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        6480,
+        1000
+      ],
+      "id": "5e174e3c-c19a-4f96-b2d3-5cd9a9bf7dbd",
+      "name": "GS_LOG_SITEMAP2",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// CODE_MARK_SITEMAP_ROW_EXPIRED — gancho leve do EXPIRE: zera is_indexable quase\n// na hora (o commit real do sitemap fica para o proximo tick do\n// TRIGGER_RECONCILE_SITEMAP, evitando commits repetidos no mesmo run).\nconst idx = $itemIndex;\nlet j = {};\ntry { j = $('CODE_MARK_EXPIRED').all()[idx].json; } catch (e) { j = $json; }\nreturn { json: { news_id: j.news_id } };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3000,
+        200
+      ],
+      "id": "4df153e8-d91a-49cc-9060-616d36a53ea2",
+      "name": "CODE_MARK_SITEMAP_ROW_EXPIRED"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update sitemap_urls set status='expired', is_indexable=false, lastmod=now() where news_id=$1;",
+        "options": {
+          "queryReplacement": "={{ [$json.news_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3200,
+        200
+      ],
+      "id": "623cc0b2-79d2-498b-9a75-d7eafa74c59c",
+      "name": "GS_MARK_SITEMAP_EXPIRED_IMMEDIATE",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */45 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        3200,
+        1450
+      ],
+      "id": "a904c29f-e2e1-4d07-bb74-873a4f660847",
+      "name": "TRIGGER_GSC_SUBMIT",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select\n  (select xml_hash from sitemap_log where committed=true and xml_hash is not null\n     order by ran_at desc limit 1) as last_committed_hash,\n  (select xml_hash from sitemap_log where gsc_submitted_at is not null\n     order by ran_at desc limit 1) as last_submitted_hash;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3400,
+        1450
+      ],
+      "id": "45946e92-4f5a-48f9-95f8-611527799897",
+      "name": "GS_READ_GSC_STATE",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// CODE_CHECK_NEEDS_SUBMIT — so segue se o sitemap commitado mudou desde a\n// ultima submissao ao Search Console. Retornar [] curto-circuita o resto.\nconst r = $input.first().json;\nif (!r.last_committed_hash || r.last_committed_hash === r.last_submitted_hash) return [];\nreturn [{ json: {} }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        1450
+      ],
+      "id": "d9f947d9-adba-43dc-bba5-e145f1774839",
+      "name": "CODE_CHECK_NEEDS_SUBMIT"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ 'https://www.googleapis.com/webmasters/v3/sites/' + encodeURIComponent(($vars.SITE_BASE_URL || 'https://oriapartners.com') + '/') + '/sitemaps/' + encodeURIComponent(($vars.SITE_BASE_URL || 'https://oriapartners.com') + '/news-sitemap.xml') }}",
+        "authentication": "none",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3800,
+        1450
+      ],
+      "id": "20c5c8ca-e06e-494e-a8d7-1670f3175f03",
+      "name": "HTTP_GSC_SUBMIT",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into sitemap_log (run_type, committed, gsc_submitted_at) values ('gsc_submit', true, now());",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4000,
+        1450
+      ],
+      "id": "5c8acf3c-8fd1-48ee-bca7-637239c38599",
+      "name": "GS_LOG_GSC_SUBMIT",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update sitemap_urls set search_console_submitted_at = now()\nwhere status='published' and is_indexable=true;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4200,
+        1450
+      ],
+      "id": "b404a481-4f30-4c15-b01a-acff74c023f9",
+      "name": "GS_MARK_SITEMAP_URLS_SUBMITTED",
+      "credentials": {
+        "postgres": {
+          "id": "5xFOx4DBCgaKOfhs",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Search Console (desativado)\n\nEste bloco (TRIGGER_GSC_SUBMIT + HTTP_GSC_SUBMIT) esta **desligado** (`disabled: true` nos dois nos) porque ainda nao existe credencial Google.\n\n**Para ativar:**\n1. Google Cloud Console: criar projeto, habilitar a Search Console API, criar credencial OAuth2 (Client ID/Secret) e verificar a propriedade do site.\n2. n8n: Credentials -> New -> Google OAuth2 API, escopo `https://www.googleapis.com/auth/webmasters`, autorizar.\n3. Anexar essa credencial ao node HTTP_GSC_SUBMIT (authentication: predefinedCredentialType -> Google OAuth2 API).\n4. Remover `disabled:true` de TRIGGER_GSC_SUBMIT e HTTP_GSC_SUBMIT.\n\nSem isso, o sitemap ja funciona sozinho: o Google descobre via robots.txt.",
+        "height": 360,
+        "width": 460,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3200,
+        1650
+      ],
+      "id": "b7323b67-779f-4a4a-ba7d-6f9828855ff7",
+      "name": "Sticky Note5"
     }
   ],
   "pinData": {},
@@ -2456,6 +3532,491 @@
         [
           {
             "node": "GS_CLOSE_UNSELECTED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_APPEND_PUBLISHED": {
+      "main": [
+        [
+          {
+            "node": "CODE_BUILD_SITEMAP_ROW",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_BUILD_SITEMAP_ROW": {
+      "main": [
+        [
+          {
+            "node": "GS_UPSERT_SITEMAP_URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_UPSERT_SITEMAP_URL": {
+      "main": [
+        [
+          {
+            "node": "CODE_COLLAPSE_TO_ONE1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_COLLAPSE_TO_ONE1": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_READ_LASTHASH1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_READ_LASTHASH1": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_READ_INDEXABLE1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_READ_INDEXABLE1": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_BUILD_XML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_BUILD_XML1": {
+      "main": [
+        [
+          {
+            "node": "IF_SITEMAP_CHANGED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_SITEMAP_CHANGED1": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_EDIT_SITEMAP1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_ROBOTS_CHANGED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_EDIT_SITEMAP1": {
+      "main": [
+        [
+          {
+            "node": "IF_SITEMAP_EDIT_FAILED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_SITEMAP_EDIT_FAILED1": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_CREATE_SITEMAP1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_MARK_INCLUDED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_CREATE_SITEMAP1": {
+      "main": [
+        [
+          {
+            "node": "GS_MARK_INCLUDED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_MARK_INCLUDED1": {
+      "main": [
+        [
+          {
+            "node": "IF_ROBOTS_CHANGED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_ROBOTS_CHANGED1": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_EDIT_ROBOTS1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_LOG_SITEMAP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_EDIT_ROBOTS1": {
+      "main": [
+        [
+          {
+            "node": "IF_ROBOTS_EDIT_FAILED1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_ROBOTS_EDIT_FAILED1": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_CREATE_ROBOTS1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_LOG_SITEMAP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_CREATE_ROBOTS1": {
+      "main": [
+        [
+          {
+            "node": "GS_LOG_SITEMAP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_RECONCILE_SITEMAP": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_TO_EXPIRE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_TO_EXPIRE": {
+      "main": [
+        [
+          {
+            "node": "CODE_COUNT_CHECK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_COUNT_CHECK": {
+      "main": [
+        [
+          {
+            "node": "GS_MARK_SITEMAP_EXPIRED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_MARK_SITEMAP_EXPIRED": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_READ_LASTHASH2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_READ_LASTHASH2": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_READ_INDEXABLE2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_READ_INDEXABLE2": {
+      "main": [
+        [
+          {
+            "node": "SITEMAP_BUILD_XML2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SITEMAP_BUILD_XML2": {
+      "main": [
+        [
+          {
+            "node": "IF_SITEMAP_CHANGED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_SITEMAP_CHANGED2": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_EDIT_SITEMAP2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF_ROBOTS_CHANGED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_EDIT_SITEMAP2": {
+      "main": [
+        [
+          {
+            "node": "IF_SITEMAP_EDIT_FAILED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_SITEMAP_EDIT_FAILED2": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_CREATE_SITEMAP2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_MARK_INCLUDED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_CREATE_SITEMAP2": {
+      "main": [
+        [
+          {
+            "node": "GS_MARK_INCLUDED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_MARK_INCLUDED2": {
+      "main": [
+        [
+          {
+            "node": "IF_ROBOTS_CHANGED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_ROBOTS_CHANGED2": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_EDIT_ROBOTS2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_LOG_SITEMAP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_EDIT_ROBOTS2": {
+      "main": [
+        [
+          {
+            "node": "IF_ROBOTS_EDIT_FAILED2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF_ROBOTS_EDIT_FAILED2": {
+      "main": [
+        [
+          {
+            "node": "GITHUB_CREATE_ROBOTS2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GS_LOG_SITEMAP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GITHUB_CREATE_ROBOTS2": {
+      "main": [
+        [
+          {
+            "node": "GS_LOG_SITEMAP2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_UPDATE_PUBLISHED": {
+      "main": [
+        [
+          {
+            "node": "CODE_MARK_SITEMAP_ROW_EXPIRED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_MARK_SITEMAP_ROW_EXPIRED": {
+      "main": [
+        [
+          {
+            "node": "GS_MARK_SITEMAP_EXPIRED_IMMEDIATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRIGGER_GSC_SUBMIT": {
+      "main": [
+        [
+          {
+            "node": "GS_READ_GSC_STATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_READ_GSC_STATE": {
+      "main": [
+        [
+          {
+            "node": "CODE_CHECK_NEEDS_SUBMIT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CODE_CHECK_NEEDS_SUBMIT": {
+      "main": [
+        [
+          {
+            "node": "HTTP_GSC_SUBMIT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP_GSC_SUBMIT": {
+      "main": [
+        [
+          {
+            "node": "GS_LOG_GSC_SUBMIT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GS_LOG_GSC_SUBMIT": {
+      "main": [
+        [
+          {
+            "node": "GS_MARK_SITEMAP_URLS_SUBMITTED",
             "type": "main",
             "index": 0
           }

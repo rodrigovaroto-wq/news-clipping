@@ -136,6 +136,73 @@ Remove do site as publicadas antigas e as arquiva.
 
 ---
 
+## PIPELINE 6 — SITEMAP/INDEXAÇÃO (camada desacoplada, pós-publicação)
+
+Objetivo: garantir que toda notícia publicada apareça automaticamente num `news-sitemap.xml`
+válido, que notícias expiradas saiam dele automaticamente, e preparar a resubmissão em lote ao
+Google Search Console. **Não altera** a lógica de PUBLISH/EXPIRE — só se anexa aos nós terminais
+`GS_APPEND_PUBLISHED` e `GS_UPDATE_PUBLISHED` (ambos sem saída antes desta entrega).
+
+Fonte de verdade própria: tabela `sitemap_urls` (sem foreign key para `published_news`, mesma
+convenção de desacoplamento das outras tabelas do projeto) e `sitemap_log` (observabilidade,
+série temporal de execuções — ver `sql/10_sitemap.sql`).
+
+### Parte A — `sync_on_publish` (anexado ao fim do PUBLISH)
+
+| Node | Tipo | Função | Recebe | Envia |
+|------|------|--------|--------|-------|
+| **CODE_BUILD_SITEMAP_ROW** | Code | Monta a URL pública (`SITE_BASE_URL/noticias/{categoria}/{slug}`); recupera dados do `CODE_BUILD_PUBROW` por índice | saída de `GS_APPEND_PUBLISHED` | linha → GS_UPSERT_SITEMAP_URL |
+| **GS_UPSERT_SITEMAP_URL** | Postgres Execute Query | Upsert em `sitemap_urls`; `expires_at = published_at + 30 dias` calculado em SQL | linha | — → CODE_COLLAPSE_TO_ONE1 |
+| **CODE_COLLAPSE_TO_ONE1** | Code | Reduz até 3 itens/dia a **1 só disparo** de regeneração do sitemap | N itens | 1 item → SITEMAP_READ_LASTHASH1 |
+| **SITEMAP_READ_LASTHASH1 / SITEMAP_READ_INDEXABLE1** | Postgres Select | Último hash commitado + todas as URLs indexáveis atuais | 1 item | → SITEMAP_BUILD_XML1 |
+| **SITEMAP_BUILD_XML1** | Code | Monta XML (com escaping) + `robots.txt`; hash **FNV-1a puro-JS** (sem `require('crypto')`); compara com o último hash | leituras | `changed`/`robotsChanged` → IF_SITEMAP_CHANGED1 |
+| **IF_SITEMAP_CHANGED1** | If | Só segue para commit se o XML mudou | — | true→GITHUB_EDIT_SITEMAP1 / false→IF_ROBOTS_CHANGED1 |
+| **GITHUB_EDIT_SITEMAP1** (`continueOnFail`) → **IF_SITEMAP_EDIT_FAILED1** → **GITHUB_CREATE_SITEMAP1** | GitHub | Tenta editar `public/news-sitemap.xml`; se falhar (1ª execução, arquivo não existe), cria | XML | commit → GS_MARK_INCLUDED1 |
+| **GS_MARK_INCLUDED1** | Postgres Execute Query | `sitemap_included_at = now()` nas URLs indexáveis | commit | → IF_ROBOTS_CHANGED1 |
+| **IF_ROBOTS_CHANGED1** → **GITHUB_EDIT_ROBOTS1**/**GITHUB_CREATE_ROBOTS1** | If + GitHub | Mesmo padrão edit-com-fallback-create para `public/robots.txt` (overwrite idempotente, conteúdo 100% gerado pelo pipeline) | — | → GS_LOG_SITEMAP1 |
+| **GS_LOG_SITEMAP1** | Postgres Execute Query | Insere em `sitemap_log` (inclusive quando não houve commit, para observabilidade) | — | — (fim) |
+
+### Parte B — `reconcile_expired_news` (trigger próprio + gancho no EXPIRE)
+
+| Node | Tipo | Função | Recebe | Envia |
+|------|------|--------|--------|-------|
+| **TRIGGER_RECONCILE_SITEMAP** | Schedule | Cron `0 */12 * * * *` (a cada 12min) | — | GS_READ_TO_EXPIRE |
+| **GS_READ_TO_EXPIRE** | Postgres Execute Query | 1 SELECT cobrindo os 2 motivos de saída: `expires_at<=now()` OU `published_news.publication_status='expired'` | trigger | candidatos → CODE_COUNT_CHECK |
+| **CODE_COUNT_CHECK** | Code | Corta o fluxo (retorna `[]`) se não há nada a reconciliar — evita ruído a cada 12min | candidatos | ids → GS_MARK_SITEMAP_EXPIRED |
+| **GS_MARK_SITEMAP_EXPIRED** | Postgres Execute Query | `is_indexable=false, status='expired'` em lote | ids | → SITEMAP_READ_LASTHASH2 |
+| *(mesma cadeia da Parte A, sufixo 2)* | | Regenera o sitemap só se algo mudou de fato | | → GS_LOG_SITEMAP2 |
+
+**Gancho leve no EXPIRE existente** (não altera a lógica dele, só anexa em `GS_UPDATE_PUBLISHED`,
+antes sem saída): `GS_UPDATE_PUBLISHED` → **CODE_MARK_SITEMAP_ROW_EXPIRED** (recupera `news_id` de
+`$('CODE_MARK_EXPIRED')` por índice) → **GS_MARK_SITEMAP_EXPIRED_IMMEDIATE** (`is_indexable=false`
+na hora). Isso derruba a janela de staleness de até 12min para ~0 — mas **não commita no GitHub**;
+o commit real fica para o próximo tick do `TRIGGER_RECONCILE_SITEMAP`, evitando commits repetidos
+quando o EXPIRE processa vários itens no mesmo run.
+
+### Parte C — Search Console (scaffold desativado)
+
+`TRIGGER_GSC_SUBMIT` (`disabled: true`) → `GS_READ_GSC_STATE` → `CODE_CHECK_NEEDS_SUBMIT` (curto-
+circuita se o hash commitado já foi submetido) → `HTTP_GSC_SUBMIT` (`PUT .../sitemaps/{feedpath}`,
+**sem credencial anexada, `disabled: true`** — dupla trava) → `GS_LOG_GSC_SUBMIT` +
+`GS_MARK_SITEMAP_URLS_SUBMITTED`. Sticky note no canvas do n8n explica os 4 passos para ativar
+(criar OAuth2 no Google Cloud, credencial no n8n, anexar ao node, remover os `disabled:true`). Sem
+isso, o sitemap já funciona sozinho — o Google descobre via `robots.txt`.
+
+### Riscos documentados
+
+- **Semântica exata de `continueOnFail`/`get` do node GitHub** não foi validada contra uma instância
+  real de n8n nesta versão — se `IF_SITEMAP_EDIT_FAILED{1,2}`/`IF_ROBOTS_EDIT_FAILED{1,2}` não
+  detectarem o erro corretamente na 1ª execução (arquivo ainda não existe), ajustar a expressão
+  `!!$json.error` conforme o formato real de erro desta versão do n8n.
+- Corrida entre `sync_on_publish` e `reconcile_expired_news`: mitigada por cadência (colisão rara)
+  e por tudo ser idempotente (hash divergente se autocorrige no próximo tick).
+- `MAX_DAYS=30` duplicado (hardcoded em `CODE_FIND_EXPIRED` e replicado como `interval '30 days'`
+  no upsert) — atualizar os dois juntos se a política de TTL mudar.
+- `category`/`slug` são um snapshot congelado no momento da publicação; não há hoje pipeline que
+  edite `published_news` pós-publicação, então o risco de URL dessincronizada é dormente.
+
+---
+
 ## Nós removidos / alterados
 
 - **LIMIT_BATCH** (teto de 15/execução): **removido** — substituído pelo **CODE_TOP3** (ranqueia por score e corta em 3).

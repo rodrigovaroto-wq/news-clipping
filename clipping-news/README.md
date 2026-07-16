@@ -14,12 +14,13 @@ clipping-news/
 └── README.md
 ```
 
-## Os 5 pipelines
+## Os 6 pipelines
 1. INGEST — RSS -> normaliza -> filtra existentes -> raw_news -> peneira keyword
 2. TRIAGE — dupla passada LLM (triagem + verificação) -> approved/rejected **+ `relevance_score` (core Oria + materialidade + autoridade da fonte)**
-3. PUBLISH — **consolidação diária**: embedding 1536 -> dedup híbrido (embedding + trigrama + LLM na zona cinzenta) -> **ranqueia por score e publica só as 3 melhores do dia** -> captura página -> resumo -> GitHub -> published_news; encerra as demais aprovadas
-4. EXPIRE — remove antigas do site -> expired_news
+3. PUBLISH — **consolidação diária**: embedding 1536 -> dedup híbrido (embedding + trigrama + LLM na zona cinzenta) -> **ranqueia por score e publica só as 3 melhores do dia** -> captura página -> resumo -> GitHub -> published_news; encerra as demais aprovadas -> **sync_on_publish** registra a URL no sitemap
+4. EXPIRE — remove antigas do site -> expired_news -> gancho imediato zera a URL do sitemap
 5. LIMPEZA_EMB — limpa embeddings antigos (provavelmente obsoleto com pgvector)
+6. SITEMAP/INDEXAÇÃO — `reconcile_expired_news` (a cada 12min) mantém `news-sitemap.xml`/`robots.txt` sincronizados no repo do site; submissão ao Search Console pronta mas desativada (ver docs/FLUXO_COMPLETO.md)
 
 ## Stack
 - n8n 2.27.4 (PikaPods)
@@ -34,8 +35,11 @@ sql/02_index_hnsw.sql
 sql/06_dedup_upgrade.sql      # relevance_score + pg_trgm + índices (rodar ANTES do 03)
 sql/03_find_duplicate.sql     # find_duplicate_v2 (híbrido + zona cinzenta)
 sql/04_source_registry_seed.sql
+sql/10_sitemap.sql            # sitemap_urls + sitemap_log + view sitemap_status
 ```
-Depois: importar workflows/clipping.json no n8n e apontar a credencial Postgres.
+Depois: importar workflows/clipping.json no n8n, apontar a credencial Postgres e configurar a
+variável de ambiente n8n `SITE_BASE_URL` (ex.: `https://oriapartners.com`; fallback embutido nos
+nós caso não seja definida).
 
 ## Seleção Top-3 do dia (curadoria rígida)
 A triagem atribui `relevance_score` de **conteúdo** (`0.6·core Oria + 0.4·materialidade`, 0–100),
@@ -50,6 +54,18 @@ menos de 3 (ou 0) — é o custo da curadoria. As demais aprovadas são encerrad
 2. **Intra-lote** — cosseno + trigrama de título no `CODE_PREP` (mantém a de maior score).
 3. **Vs-publicado** — `find_duplicate_v2` (embedding + `pg_trgm`) com **zona cinzenta**: pares
    ambíguos vão ao `GPT-API_DEDUP` (LLM decide "mesmo evento?").
+
+## Sitemap/indexação (camada desacoplada, pós-publicação)
+Tabela própria `sitemap_urls` (sem FK para `published_news`) registra a URL pública de cada
+notícia (`https://{SITE_BASE_URL}/noticias/{categoria}/{slug}`). Dois workflows mantêm o
+`public/news-sitemap.xml`/`public/robots.txt` do repo do site sempre em dia:
+- **sync_on_publish** — anexado ao fim do PUBLISH: grava a URL nova e regenera o sitemap.
+- **reconcile_expired_news** — cron a cada 12min: remove URLs vencidas (30 dias) ou já expiradas
+  no EXPIRE, e regenera o sitemap. Um gancho leve no EXPIRE já zera a indexação quase na hora.
+
+Só commita no GitHub quando o conteúdo realmente muda (hash comparado em `sitemap_log`).
+Submissão automática ao Google Search Console já está construída mas **desativada** (falta
+credencial OAuth2) — ver sticky note no workflow e `docs/FLUXO_COMPLETO.md`.
 
 ## Pendência atual
 Calibrar os thresholds do dedup para 1536 dims com pares reais (ver
