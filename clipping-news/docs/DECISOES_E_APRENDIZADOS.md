@@ -120,6 +120,14 @@
 - Search Console: scaffold completo mas com dupla trava `disabled:true` (trigger + node HTTP),
   sem credencial anexada — o usuário ainda não tem OAuth2 configurado. Sitemap já funciona sozinho
   via `robots.txt` sem essa submissão automática.
+- **Bug real corrigido em teste**: `SITEMAP_READ_LASTHASH1/2` (`select ... from sitemap_log ...`)
+  e `SITEMAP_READ_INDEXABLE1/2` retornam 0 linhas quando as tabelas ainda estão vazias (1ª execução,
+  ou `sitemap_urls` zerada). Por padrão o n8n **para de executar o ramo do workflow** quando um nó
+  Postgres devolve zero itens — mesmo o Code node seguinte (`SITEMAP_BUILD_XML1/2`) já tratando isso
+  com segurança (`try/catch` no `.first()`, `|| ''` no hash). O JS nunca chegava a rodar. Corrigido
+  ativando `alwaysOutputData: true` nos 4 nós de leitura — o n8n passa a emitir 1 item vazio (`{}`)
+  em vez de interromper, e o código já tratava esse caso corretamente. Achado testando com
+  `workflows/clipping.test.json` (cópia com nós GitHub desativados para teste sem side-effects).
 
 ## Pendências
 - Calibrar thresholds 1536 com pares reais (sql/09_diagnostics.sql) — refina precisão do dedup.
@@ -134,3 +142,5 @@
 - Verificar comportamento real de `edit`/`continueOnFail` do node GitHub nesta versão do n8n na
   primeira execução do sitemap (ver riscos documentados em FLUXO_COMPLETO.md).
 - Ativar a submissão ao Search Console quando houver credencial OAuth2 (ver sticky note no canvas).
+- Reimportar `clipping.json` no n8n para pegar o fix de `alwaysOutputData` nos 4 nós de leitura do
+  sitemap (senão a 1ª execução real trava do mesmo jeito que travou no `clipping.test.json`).

@@ -1960,7 +1960,8 @@
           "id": "5xFOx4DBCgaKOfhs",
           "name": "Postgres account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -1981,7 +1982,8 @@
           "id": "5xFOx4DBCgaKOfhs",
           "name": "Postgres account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -2428,7 +2430,8 @@
           "id": "5xFOx4DBCgaKOfhs",
           "name": "Postgres account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
@@ -2449,7 +2452,8 @@
           "id": "5xFOx4DBCgaKOfhs",
           "name": "Postgres account"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
